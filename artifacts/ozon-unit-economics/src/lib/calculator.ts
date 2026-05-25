@@ -1,33 +1,33 @@
 import { OzonReportRow, CalculatedRow, ReportSummary, TaxSettings, SkuCost } from '../types';
 
-export function calcTax(netSales: number, costs: number, tax: TaxSettings): number {
+export function calcTax(netSales: number, totalCosts: number, tax: TaxSettings): number {
   if (tax.type === 'none') return 0;
   if (tax.type === 'usn_income') return netSales * tax.rate;
-  if (tax.type === 'usn_income_expense') return Math.max(0, (netSales - costs) * tax.rate);
-  if (tax.type === 'osno') return netSales * tax.rate; // simplified
+  if (tax.type === 'usn_income_expense') return Math.max(0, (netSales - totalCosts) * tax.rate);
+  if (tax.type === 'osno') return netSales * tax.rate;
   return 0;
 }
 
 export function calcRow(row: OzonReportRow, cost: SkuCost, tax: TaxSettings): CalculatedRow {
   const costTotal = cost.costPerUnit * row.salesCount;
   const vatAmount = row.netSales * (cost.vatRate / 100);
-  const totalOzonExpenses = row.ozonCommission + row.deliveryServices + row.agentServices + row.promotion + row.otherExpenses;
+
+  const totalOzonExpenses =
+    row.ozonCommission +
+    row.deliveryServices +
+    row.agentServices +
+    row.promotion +
+    row.storage +
+    row.fboServices +
+    row.otherExpenses;
+
   const profitBeforeCosts = row.netSales - totalOzonExpenses;
   const taxAmount = calcTax(row.netSales, costTotal + totalOzonExpenses, tax);
   const netProfit = profitBeforeCosts - costTotal - vatAmount - taxAmount;
   const marginPercent = row.netSales > 0 ? (netProfit / row.netSales) * 100 : 0;
   const avgPrice = row.salesCount > 0 ? row.netSales / row.salesCount : 0;
 
-  return {
-    ...row,
-    costTotal,
-    vatAmount,
-    taxAmount,
-    profitBeforeCosts,
-    netProfit,
-    marginPercent,
-    avgPrice,
-  };
+  return { ...row, costTotal, vatAmount, taxAmount, profitBeforeCosts, netProfit, marginPercent, avgPrice };
 }
 
 export function calcSummary(rows: CalculatedRow[]): ReportSummary {
@@ -52,7 +52,10 @@ export function calcSummary(rows: CalculatedRow[]): ReportSummary {
     processing:       sum('processing'),
     agentServices:    sum('agentServices'),
     acquiring:        sum('acquiring'),
+    returnProcessing: sum('returnProcessing'),
     promotion:        sum('promotion'),
+    storage:          sum('storage'),
+    fboServices:      sum('fboServices'),
     otherExpenses:    sum('otherExpenses'),
     profitBeforeCosts: sum('profitBeforeCosts'),
     costTotal:        sum('costTotal'),

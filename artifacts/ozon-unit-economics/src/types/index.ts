@@ -1,5 +1,5 @@
 export type TaxType = 'usn_income' | 'usn_income_expense' | 'osno' | 'none';
-export type ReportFormat = 'new' | 'old' | 'unknown';
+export type ReportFormat = 'nacisleniya' | 'new' | 'old' | 'unknown';
 
 export interface TaxSettings {
   type: TaxType;
@@ -10,23 +10,26 @@ export interface TaxSettings {
 export interface OzonReportRow {
   article: string;
   name: string;
-  ordersCount: number;
-  ordersSum: number;
-  returnsCount: number;
-  returnsSum: number;
-  salesCount: number;
-  netSales: number;
-  ozonCommission: number;    // Вознаграждение Ozon (negative in file, we store as positive expense)
+  ordersCount: number;   // total orders (sales + returns)
+  ordersSum: number;     // gross revenue (Продажи group)
+  returnsCount: number;  // return events
+  returnsSum: number;    // gross returned amount (positive)
+  salesCount: number;    // sold units
+  netSales: number;      // ordersSum - returnsSum (net)
+  ozonCommission: number;    // Вознаграждение за продажу (net of refunds)
   deliveryServices: number;  // Услуги доставки total
   logistics: number;         // Логистика
   returnLogistics: number;   // Обратная логистика
+  lastMile: number;          // Последняя миля / Доставка до места выдачи
+  processing: number;        // Обработка отправления / Drop-off
   otherDelivery: number;     // Прочие начисления по доставке
-  agentServices: number;     // Услуги агентов
+  agentServices: number;     // Услуги партнёров total
   acquiring: number;         // Эквайринг
-  lastMile: number;          // Последняя миля (old format)
-  processing: number;        // Обработка отправления (old format)
-  promotion: number;         // Продвижение/реклама
-  otherExpenses: number;     // Прочие расходы маркетплейса
+  returnProcessing: number;  // Обработка возвратов партнёрами
+  promotion: number;         // Продвижение и реклама
+  storage: number;           // Хранение (Услуги FBO | Размещение на складе)
+  fboServices: number;       // Прочие Услуги FBO
+  otherExpenses: number;     // Другие услуги и штрафы
 }
 
 // User-entered cost per SKU
@@ -62,7 +65,10 @@ export interface ReportSummary {
   processing: number;
   agentServices: number;
   acquiring: number;
+  returnProcessing: number;
   promotion: number;
+  storage: number;
+  fboServices: number;
   otherExpenses: number;
   profitBeforeCosts: number;
   costTotal: number;

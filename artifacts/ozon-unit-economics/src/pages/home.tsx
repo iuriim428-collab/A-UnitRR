@@ -31,6 +31,13 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
   );
 }
 
+function formatLabel(format: string) {
+  if (format === 'nacisleniya') return 'НАЧИСЛЕНИЯ';
+  if (format === 'new') return 'РЕАЛИЗАЦИЯ (НОВЫЙ)';
+  if (format === 'old') return 'РЕАЛИЗАЦИЯ (СТАРЫЙ)';
+  return '';
+}
+
 export default function Home() {
   const report = useReport();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -68,22 +75,32 @@ export default function Home() {
       report.calculatedRows.map(r => ({
         'Артикул': r.article,
         'Название': r.name,
+        'Заказы, шт': r.ordersCount,
+        'Возвраты, шт': r.returnsCount,
         'Продажи, шт': r.salesCount,
-        'Выручка, руб': r.netSales,
+        'Выручка (чистая), руб': r.netSales,
         'Комиссия Ozon, руб': r.ozonCommission,
-        'Доставка, руб': r.deliveryServices,
+        'Логистика, руб': r.logistics,
+        'Обратная логистика, руб': r.returnLogistics,
+        'Последняя миля, руб': r.lastMile,
+        'Эквайринг, руб': r.acquiring,
+        'Продвижение, руб': r.promotion,
+        'Хранение, руб': r.storage,
+        'Прочие FBO, руб': r.fboServices,
+        'Другие расходы, руб': r.otherExpenses,
         'Себестоимость, руб': r.costTotal,
         'НДС, руб': r.vatAmount,
         'Налог, руб': r.taxAmount,
         'Чистая прибыль, руб': r.netProfit,
         'Маржа, %': r.marginPercent.toFixed(1),
       })),
-      'ozon_report.xlsx'
+      'ozon_unit_economics.xlsx'
     );
   };
 
   const s = report.summary;
   const hasData = report.rows.length > 0;
+  const isNac = report.format === 'nacisleniya';
 
   return (
     <div className="h-screen bg-background text-foreground flex flex-col font-mono text-sm dark select-none">
@@ -94,13 +111,12 @@ export default function Home() {
           <h1 className="text-base font-bold uppercase tracking-tight whitespace-nowrap">Ozon Unit Economics</h1>
           {hasData && (
             <span className="text-[10px] text-muted-foreground border border-border/50 px-2 py-0.5 ml-2 whitespace-nowrap">
-              {report.format === 'new' ? 'НОВЫЙ ФОРМАТ' : 'СТАРЫЙ ФОРМАТ'} · {report.rows.length} SKU
+              {formatLabel(report.format)} · {report.rows.length} SKU
             </span>
           )}
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Tax selector */}
           <select
             className="h-7 text-xs bg-muted border border-border rounded-none px-2 text-foreground"
             value={report.tax.type}
@@ -115,7 +131,6 @@ export default function Home() {
             ))}
           </select>
 
-          {/* Filter */}
           <div className="flex border border-border text-[11px]">
             {(['all', 'profitable', 'unprofitable'] as const).map(f => (
               <button
@@ -160,7 +175,6 @@ export default function Home() {
 
       {/* MAIN */}
       {!hasData ? (
-        /* UPLOAD ZONE */
         <div className="flex-1 flex items-center justify-center p-8">
           <div
             className="border-2 border-dashed border-border/50 hover:border-primary/50 transition-colors rounded-sm p-12 text-center max-w-lg w-full cursor-pointer"
@@ -174,11 +188,11 @@ export default function Home() {
               {loading ? 'Читаю файл...' : 'Перетащите отчёт Ozon или нажмите для выбора'}
             </p>
             <p className="text-xs text-muted-foreground mb-4">
-              Поддерживаются отчёты о реализации в форматах .xlsx, .xls, .xlsm
+              Поддерживаются отчёты из кабинета Ozon в форматах .xlsx, .xls
             </p>
             <p className="text-[11px] text-muted-foreground/60">
-              Новый формат: отчёт с колонками «Чистые продажи», «Вознаграждение Ozon»<br />
-              Старый формат: отчёт с колонками «Выкуплено», «Обработка и доставка»
+              «Отчёт по начислениям» (Финансы → Начисления)<br />
+              Отчёт о реализации (новый и старый форматы)
             </p>
             {error && (
               <p className="mt-4 text-xs text-red-400 border border-red-400/20 bg-red-400/10 px-3 py-2">
@@ -188,29 +202,30 @@ export default function Home() {
           </div>
         </div>
       ) : (
-        /* DATA VIEW: left summary + right table */
         <div className="flex-1 flex overflow-hidden">
           {/* LEFT SUMMARY PANEL */}
           <aside className="flex-none w-56 bg-card border-r overflow-y-auto p-3 text-xs space-y-0.5">
             <SectionHeader>Ключевые показатели</SectionHeader>
-            <MetricRow label="Заказы, шт" value={formatNumber(s.ordersCount)} />
-            <MetricRow label="Возвраты, шт" value={formatNumber(s.returnsCount)} />
             <MetricRow label="Продажи, шт" value={formatNumber(s.salesCount)} />
-            <MetricRow label="Сумма заказов" value={formatCurrency(s.ordersSum)} />
+            <MetricRow label="Возвраты, шт" value={s.returnsCount > 0 ? `-${formatNumber(s.returnsCount)}` : '—'} />
+            {s.ordersSum > 0 && <MetricRow label="Сумма продаж" value={formatCurrency(s.ordersSum)} />}
             {s.returnsSum > 0 && <MetricRow label="Сумма возвратов" value={`-${formatCurrency(s.returnsSum)}`} />}
-            <MetricRow label="Чистые продажи" value={formatCurrency(s.netSales)} />
+            <MetricRow label="Чистая выручка" value={formatCurrency(s.netSales)} />
 
             <SectionHeader>Расходы Ozon</SectionHeader>
             <MetricRow label="Комиссия" value={`-${formatCurrency(s.ozonCommission)}`} />
-            <MetricRow label="Доставка итого" value={`-${formatCurrency(s.deliveryServices)}`} />
+            {s.deliveryServices > 0 && <MetricRow label="Доставка итого" value={`-${formatCurrency(s.deliveryServices)}`} />}
             {s.logistics > 0 && <MetricRow label="└ Логистика" value={`-${formatCurrency(s.logistics)}`} sub />}
-            {s.lastMile > 0 && <MetricRow label="└ Последняя миля" value={`-${formatCurrency(s.lastMile)}`} sub />}
-            {s.processing > 0 && <MetricRow label="└ Обработка" value={`-${formatCurrency(s.processing)}`} sub />}
             {s.returnLogistics > 0 && <MetricRow label="└ Обрат. лог." value={`-${formatCurrency(s.returnLogistics)}`} sub />}
-            {s.agentServices > 0 && <MetricRow label="Услуги агентов" value={`-${formatCurrency(s.agentServices)}`} />}
+            {s.lastMile > 0 && <MetricRow label="└ Доставка ПВЗ" value={`-${formatCurrency(s.lastMile)}`} sub />}
+            {s.processing > 0 && <MetricRow label="└ Drop-off" value={`-${formatCurrency(s.processing)}`} sub />}
+            {s.agentServices > 0 && <MetricRow label="Услуги партнёров" value={`-${formatCurrency(s.agentServices)}`} />}
             {s.acquiring > 0 && <MetricRow label="└ Эквайринг" value={`-${formatCurrency(s.acquiring)}`} sub />}
+            {s.returnProcessing > 0 && <MetricRow label="└ Обраб. возвратов" value={`-${formatCurrency(s.returnProcessing)}`} sub />}
             {s.promotion > 0 && <MetricRow label="Продвижение" value={`-${formatCurrency(s.promotion)}`} />}
-            {s.otherExpenses > 0 && <MetricRow label="Прочие" value={`-${formatCurrency(s.otherExpenses)}`} />}
+            {s.storage > 0 && <MetricRow label="Хранение (FBO)" value={`-${formatCurrency(s.storage)}`} />}
+            {s.fboServices > 0 && <MetricRow label="Прочие FBO" value={`-${formatCurrency(s.fboServices)}`} />}
+            {s.otherExpenses > 0 && <MetricRow label="Штрафы и прочее" value={`-${formatCurrency(s.otherExpenses)}`} />}
 
             <SectionHeader>До себестоимости</SectionHeader>
             <MetricRow label="Прибыль" value={formatCurrency(s.profitBeforeCosts)} accent={s.profitBeforeCosts > 0} />
@@ -232,7 +247,7 @@ export default function Home() {
 
             {!report.hasCosts && (
               <p className="text-[10px] text-yellow-400/70 border border-yellow-400/20 bg-yellow-400/5 px-2 py-1.5 mt-2">
-                Укажите себестоимость в таблице для точного расчёта прибыли
+                Укажите себестоимость для точного расчёта прибыли
               </p>
             )}
           </aside>
@@ -298,19 +313,17 @@ export default function Home() {
             <table className="w-full text-xs border-collapse">
               <thead className="sticky top-[33px] z-10 bg-card">
                 <tr className="border-b border-border">
-                  <th className="text-left px-3 py-2 font-medium text-muted-foreground whitespace-nowrap w-[100px]">Артикул</th>
+                  <th className="text-left px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Артикул</th>
                   <th className="text-left px-3 py-2 font-medium text-muted-foreground">Название</th>
-                  <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Заказы</th>
-                  <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Возвраты</th>
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Продажи</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Возвраты</th>
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Ср. цена</th>
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Выручка</th>
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Комиссия</th>
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Доставка</th>
-                  {report.format === 'old' && <>
-                    <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Лог.</th>
-                    <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">П. миля</th>
-                  </>}
+                  {isNac && <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Партнёры</th>}
+                  {isNac && <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Реклама</th>}
+                  {isNac && <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Хранение</th>}
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Себест.</th>
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Налог</th>
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Прибыль</th>
@@ -326,17 +339,15 @@ export default function Home() {
                   >
                     <td className="px-3 py-1.5 font-medium text-primary/80 whitespace-nowrap">{row.article}</td>
                     <td className="px-3 py-1.5 text-muted-foreground max-w-[200px] truncate" title={row.name}>{row.name}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(row.ordersCount)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-red-400/70">{row.returnsCount > 0 ? formatNumber(row.returnsCount) : '—'}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(row.salesCount)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-red-400/70">{row.returnsCount > 0 ? formatNumber(row.returnsCount) : '—'}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.avgPrice > 0 ? formatCurrency(row.avgPrice) : '—'}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums font-medium">{formatCurrency(row.netSales)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-orange-400/80">{row.ozonCommission > 0 ? `-${formatCurrency(row.ozonCommission)}` : '—'}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-blue-400/80">{row.deliveryServices > 0 ? `-${formatCurrency(row.deliveryServices)}` : '—'}</td>
-                    {report.format === 'old' && <>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.logistics > 0 ? `-${formatCurrency(row.logistics)}` : '—'}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.lastMile > 0 ? `-${formatCurrency(row.lastMile)}` : '—'}</td>
-                    </>}
+                    {isNac && <td className="px-3 py-1.5 text-right tabular-nums text-purple-400/80">{row.agentServices > 0 ? `-${formatCurrency(row.agentServices)}` : '—'}</td>}
+                    {isNac && <td className="px-3 py-1.5 text-right tabular-nums text-pink-400/80">{row.promotion > 0 ? `-${formatCurrency(row.promotion)}` : '—'}</td>}
+                    {isNac && <td className="px-3 py-1.5 text-right tabular-nums text-cyan-400/80">{(row.storage + row.fboServices) > 0 ? `-${formatCurrency(row.storage + row.fboServices)}` : '—'}</td>}
                     <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
                       {row.costTotal > 0 ? `-${formatCurrency(row.costTotal)}` : <span className="text-yellow-400/50">укажите</span>}
                     </td>
