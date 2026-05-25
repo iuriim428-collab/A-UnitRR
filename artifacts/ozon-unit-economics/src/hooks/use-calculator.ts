@@ -69,7 +69,18 @@ export function useCalculator() {
         grossProfit,
         marginPercent,
         roiPercent,
-        breakEvenPrice
+        breakEvenPrice,
+        breakdown: {
+          commissionVal,
+          logisticsVal,
+          lastMileVal,
+          storageVal,
+          processingVal,
+          advertisingVal,
+          vatVal,
+          returnCostVal,
+          packagingVal: row.packaging,
+        }
       };
     }).filter(row => {
       if (filter === 'profitable') return row.grossProfit > 0;

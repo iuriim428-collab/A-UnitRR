@@ -26,6 +26,18 @@ export interface ProductRow {
   packaging: number;
 }
 
+export interface CostBreakdown {
+  commissionVal: number;
+  logisticsVal: number;
+  lastMileVal: number;
+  storageVal: number;
+  processingVal: number;
+  advertisingVal: number;
+  vatVal: number;
+  returnCostVal: number;
+  packagingVal: number;
+}
+
 export interface CalculatedProductRow extends ProductRow {
   revenue: number;
   ozonExpenses: number;
@@ -34,4 +46,5 @@ export interface CalculatedProductRow extends ProductRow {
   marginPercent: number;
   roiPercent: number;
   breakEvenPrice: number;
+  breakdown: CostBreakdown;
 }
