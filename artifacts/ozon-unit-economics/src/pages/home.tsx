@@ -1,258 +1,368 @@
-import { useCalculator } from '../hooks/use-calculator';
-import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Input } from '@/components/ui/input';
-import { formatCurrency, formatPercent } from '@/lib/utils';
-import * as XLSX from 'xlsx';
-import { FileUpload } from '@/components/file-upload';
-import { SettingsPanel } from '@/components/settings-panel';
-import { ChevronRight, Download, Settings2 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { useReport } from '../hooks/use-report';
+import { parseOzonReport, exportToExcel } from '../lib/excel';
+import { formatCurrency, formatPercent, formatNumber } from '../lib/utils';
+import { TaxSettings, TaxType } from '../types';
+import { Upload, Download, Trash2, FileSpreadsheet, ChevronDown, ChevronUp } from 'lucide-react';
 
-const COST_LABELS: { key: string; label: string; color: string }[] = [
-  { key: 'commissionVal',  label: 'Комиссия',      color: '#f97316' },
-  { key: 'logisticsVal',   label: 'Логистика',     color: '#3b82f6' },
-  { key: 'lastMileVal',    label: 'Последняя миля',color: '#6366f1' },
-  { key: 'storageVal',     label: 'Хранение',      color: '#8b5cf6' },
-  { key: 'processingVal',  label: 'Обработка',     color: '#a855f7' },
-  { key: 'advertisingVal', label: 'Реклама',       color: '#ec4899' },
-  { key: 'vatVal',         label: 'НДС',           color: '#14b8a6' },
-  { key: 'returnCostVal',  label: 'Возвраты',      color: '#ef4444' },
-  { key: 'packagingVal',   label: 'Упаковка',      color: '#f59e0b' },
+const TAX_OPTIONS: { label: string; type: TaxType; rate: number }[] = [
+  { label: 'УСН 6% (доходы)', type: 'usn_income', rate: 0.06 },
+  { label: 'УСН 15% (д-р)', type: 'usn_income_expense', rate: 0.15 },
+  { label: 'ОСНО 20%', type: 'osno', rate: 0.20 },
+  { label: 'Без налога', type: 'none', rate: 0 },
 ];
 
-export default function Home() {
-  const calc = useCalculator();
-  const [showSettings, setShowSettings] = useState(true);
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+function MetricRow({ label, value, accent, sub }: { label: string; value: string; accent?: boolean; sub?: boolean }) {
+  return (
+    <div className={`flex justify-between items-baseline gap-2 ${sub ? 'pl-3 text-[11px]' : 'text-xs'}`}>
+      <span className="text-muted-foreground truncate">{label}</span>
+      <span className={`tabular-nums whitespace-nowrap font-mono ${accent ? 'font-bold text-base' : 'font-medium'} ${value.startsWith('-') || value.startsWith('−') ? 'text-red-400' : accent ? 'text-green-400' : ''}`}>
+        {value}
+      </span>
+    </div>
+  );
+}
 
-  const toggleRow = (id: string) => {
-    setExpandedRows(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+function SectionHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[10px] uppercase tracking-widest text-muted-foreground/50 mt-3 mb-1 border-b border-border/30 pb-0.5">
+      {children}
+    </div>
+  );
+}
+
+export default function Home() {
+  const report = useReport();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [costOpen, setCostOpen] = useState(false);
+
+  const handleFile = async (file: File) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { rows, format } = await parseOzonReport(file);
+      report.loadReport(rows, format);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) handleFile(f);
+    e.target.value = '';
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const f = e.dataTransfer.files?.[0];
+    if (f) handleFile(f);
   };
 
   const handleExport = () => {
-    const ws = XLSX.utils.json_to_sheet(calc.calculatedRows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Economics");
-    XLSX.writeFile(wb, "ozon_economics.xlsx");
+    exportToExcel(
+      report.calculatedRows.map(r => ({
+        'Артикул': r.article,
+        'Название': r.name,
+        'Продажи, шт': r.salesCount,
+        'Выручка, руб': r.netSales,
+        'Комиссия Ozon, руб': r.ozonCommission,
+        'Доставка, руб': r.deliveryServices,
+        'Себестоимость, руб': r.costTotal,
+        'НДС, руб': r.vatAmount,
+        'Налог, руб': r.taxAmount,
+        'Чистая прибыль, руб': r.netProfit,
+        'Маржа, %': r.marginPercent.toFixed(1),
+      })),
+      'ozon_report.xlsx'
+    );
   };
 
-  const totalRevenue = calc.calculatedRows.reduce((sum, r) => sum + r.revenue, 0);
-  const totalProfit = calc.calculatedRows.reduce((sum, r) => sum + r.grossProfit, 0);
-  const avgMargin = totalRevenue > 0 ? totalProfit / totalRevenue : 0;
-  const profitableCount = calc.calculatedRows.filter(r => r.grossProfit > 0).length;
-  const unprofitableCount = calc.calculatedRows.length - profitableCount;
+  const s = report.summary;
+  const hasData = report.rows.length > 0;
 
   return (
-    <div className="h-screen bg-background text-foreground flex flex-col font-mono text-sm dark">
+    <div className="h-screen bg-background text-foreground flex flex-col font-mono text-sm dark select-none">
       {/* HEADER */}
-      <header className="flex-none flex items-center justify-between px-6 py-4 border-b bg-card z-10">
-        <div className="flex items-center gap-4">
-          <div className="w-4 h-4 bg-primary rounded-sm" />
-          <h1 className="text-xl font-bold uppercase tracking-tighter">Ozon Unit Economics</h1>
+      <header className="flex-none flex items-center justify-between px-5 py-3 border-b bg-card z-20 gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <FileSpreadsheet className="w-5 h-5 text-primary flex-shrink-0" />
+          <h1 className="text-base font-bold uppercase tracking-tight whitespace-nowrap">Ozon Unit Economics</h1>
+          {hasData && (
+            <span className="text-[10px] text-muted-foreground border border-border/50 px-2 py-0.5 ml-2 whitespace-nowrap">
+              {report.format === 'new' ? 'НОВЫЙ ФОРМАТ' : 'СТАРЫЙ ФОРМАТ'} · {report.rows.length} SKU
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex border text-xs">
-            <button className={`px-4 py-1.5 ${calc.filter === 'all' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`} onClick={() => calc.setFilter('all')} data-testid="filter-all">ALL</button>
-            <button className={`px-4 py-1.5 border-l ${calc.filter === 'profitable' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`} onClick={() => calc.setFilter('profitable')} data-testid="filter-profitable">PROFITABLE</button>
-            <button className={`px-4 py-1.5 border-l ${calc.filter === 'unprofitable' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`} onClick={() => calc.setFilter('unprofitable')} data-testid="filter-unprofitable">UNPROFITABLE</button>
+
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Tax selector */}
+          <select
+            className="h-7 text-xs bg-muted border border-border rounded-none px-2 text-foreground"
+            value={report.tax.type}
+            onChange={e => {
+              const opt = TAX_OPTIONS.find(o => o.type === e.target.value);
+              if (opt) report.setTax({ type: opt.type, rate: opt.rate } as TaxSettings);
+            }}
+            data-testid="select-tax"
+          >
+            {TAX_OPTIONS.map(o => (
+              <option key={o.type} value={o.type}>{o.label}</option>
+            ))}
+          </select>
+
+          {/* Filter */}
+          <div className="flex border border-border text-[11px]">
+            {(['all', 'profitable', 'unprofitable'] as const).map(f => (
+              <button
+                key={f}
+                className={`px-3 py-1 ${report.filter === f ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'} ${f !== 'all' ? 'border-l border-border' : ''}`}
+                onClick={() => report.setFilter(f)}
+                data-testid={`filter-${f}`}
+              >
+                {f === 'all' ? 'Все' : f === 'profitable' ? 'Прибыльные' : 'Убыточные'}
+              </button>
+            ))}
           </div>
-          <Button onClick={() => setShowSettings(!showSettings)} variant="outline" size="sm" className="rounded-none border-primary text-xs uppercase h-8" data-testid="button-settings">
-            <Settings2 className="w-4 h-4 mr-2" /> Settings
-          </Button>
-          <Button onClick={handleExport} size="sm" className="rounded-none text-xs uppercase h-8" data-testid="button-export">
-            <Download className="w-4 h-4 mr-2" /> Export
-          </Button>
+
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="flex items-center gap-1.5 h-7 px-3 text-[11px] border border-primary text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
+            data-testid="button-upload"
+          >
+            <Upload className="w-3.5 h-3.5" /> Загрузить отчёт
+          </button>
+
+          {hasData && (
+            <>
+              <button
+                onClick={handleExport}
+                className="flex items-center gap-1.5 h-7 px-3 text-[11px] bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+                data-testid="button-export"
+              >
+                <Download className="w-3.5 h-3.5" /> Экспорт
+              </button>
+              <button
+                onClick={report.clear}
+                className="flex items-center gap-1 h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground border border-border hover:border-foreground/50 transition-colors"
+                data-testid="button-clear"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
         </div>
       </header>
 
-      {/* SETTINGS PANEL */}
-      {showSettings && (
-        <div className="flex-none border-b border-border/50">
-          <SettingsPanel settings={calc.settings} onChange={calc.updateSetting} />
+      {/* MAIN */}
+      {!hasData ? (
+        /* UPLOAD ZONE */
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div
+            className="border-2 border-dashed border-border/50 hover:border-primary/50 transition-colors rounded-sm p-12 text-center max-w-lg w-full cursor-pointer"
+            onDrop={onDrop}
+            onDragOver={e => e.preventDefault()}
+            onClick={() => fileRef.current?.click()}
+            data-testid="upload-zone"
+          >
+            <FileSpreadsheet className="w-12 h-12 mx-auto mb-4 text-muted-foreground/40" />
+            <p className="text-base font-medium mb-1">
+              {loading ? 'Читаю файл...' : 'Перетащите отчёт Ozon или нажмите для выбора'}
+            </p>
+            <p className="text-xs text-muted-foreground mb-4">
+              Поддерживаются отчёты о реализации в форматах .xlsx, .xls, .xlsm
+            </p>
+            <p className="text-[11px] text-muted-foreground/60">
+              Новый формат: отчёт с колонками «Чистые продажи», «Вознаграждение Ozon»<br />
+              Старый формат: отчёт с колонками «Выкуплено», «Обработка и доставка»
+            </p>
+            {error && (
+              <p className="mt-4 text-xs text-red-400 border border-red-400/20 bg-red-400/10 px-3 py-2">
+                {error}
+              </p>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* DATA VIEW: left summary + right table */
+        <div className="flex-1 flex overflow-hidden">
+          {/* LEFT SUMMARY PANEL */}
+          <aside className="flex-none w-56 bg-card border-r overflow-y-auto p-3 text-xs space-y-0.5">
+            <SectionHeader>Ключевые показатели</SectionHeader>
+            <MetricRow label="Заказы, шт" value={formatNumber(s.ordersCount)} />
+            <MetricRow label="Возвраты, шт" value={formatNumber(s.returnsCount)} />
+            <MetricRow label="Продажи, шт" value={formatNumber(s.salesCount)} />
+            <MetricRow label="Сумма заказов" value={formatCurrency(s.ordersSum)} />
+            {s.returnsSum > 0 && <MetricRow label="Сумма возвратов" value={`-${formatCurrency(s.returnsSum)}`} />}
+            <MetricRow label="Чистые продажи" value={formatCurrency(s.netSales)} />
+
+            <SectionHeader>Расходы Ozon</SectionHeader>
+            <MetricRow label="Комиссия" value={`-${formatCurrency(s.ozonCommission)}`} />
+            <MetricRow label="Доставка итого" value={`-${formatCurrency(s.deliveryServices)}`} />
+            {s.logistics > 0 && <MetricRow label="└ Логистика" value={`-${formatCurrency(s.logistics)}`} sub />}
+            {s.lastMile > 0 && <MetricRow label="└ Последняя миля" value={`-${formatCurrency(s.lastMile)}`} sub />}
+            {s.processing > 0 && <MetricRow label="└ Обработка" value={`-${formatCurrency(s.processing)}`} sub />}
+            {s.returnLogistics > 0 && <MetricRow label="└ Обрат. лог." value={`-${formatCurrency(s.returnLogistics)}`} sub />}
+            {s.agentServices > 0 && <MetricRow label="Услуги агентов" value={`-${formatCurrency(s.agentServices)}`} />}
+            {s.acquiring > 0 && <MetricRow label="└ Эквайринг" value={`-${formatCurrency(s.acquiring)}`} sub />}
+            {s.promotion > 0 && <MetricRow label="Продвижение" value={`-${formatCurrency(s.promotion)}`} />}
+            {s.otherExpenses > 0 && <MetricRow label="Прочие" value={`-${formatCurrency(s.otherExpenses)}`} />}
+
+            <SectionHeader>До себестоимости</SectionHeader>
+            <MetricRow label="Прибыль" value={formatCurrency(s.profitBeforeCosts)} accent={s.profitBeforeCosts > 0} />
+
+            <SectionHeader>Себестоимость и налоги</SectionHeader>
+            <MetricRow label="Себестоимость" value={s.costTotal > 0 ? `-${formatCurrency(s.costTotal)}` : 'не указана'} />
+            {s.vatAmount > 0 && <MetricRow label="НДС" value={`-${formatCurrency(s.vatAmount)}`} />}
+            <MetricRow label="Налог" value={s.taxAmount > 0 ? `-${formatCurrency(s.taxAmount)}` : '—'} />
+
+            <div className="mt-3 pt-2 border-t border-border">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground/50 mb-1">Чистая прибыль</div>
+              <div className={`text-2xl font-bold tabular-nums ${s.netProfit >= 0 ? 'text-green-400' : 'text-red-400'}`} data-testid="text-net-profit">
+                {formatCurrency(s.netProfit)}
+              </div>
+              <div className={`text-xs mt-0.5 ${s.marginPercent >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`} data-testid="text-margin">
+                Маржа {formatPercent(s.marginPercent)}
+              </div>
+            </div>
+
+            {!report.hasCosts && (
+              <p className="text-[10px] text-yellow-400/70 border border-yellow-400/20 bg-yellow-400/5 px-2 py-1.5 mt-2">
+                Укажите себестоимость в таблице для точного расчёта прибыли
+              </p>
+            )}
+          </aside>
+
+          {/* RIGHT: TABLE */}
+          <div className="flex-1 overflow-auto">
+            {/* Cost entry toggle */}
+            <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-card border-b border-border/50 text-[11px]">
+              <button
+                className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setCostOpen(v => !v)}
+                data-testid="toggle-cost-panel"
+              >
+                {costOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                Себестоимость по артикулам
+              </button>
+              {report.hasCosts && (
+                <span className="text-green-400/70">· указана для {Object.keys(report.costs).length} SKU</span>
+              )}
+            </div>
+
+            {/* Cost entry panel */}
+            {costOpen && (
+              <div className="border-b border-border/50 bg-muted/10 p-3">
+                <div className="flex flex-wrap gap-2">
+                  {report.rows.map(row => {
+                    const c = report.costs[row.article] ?? { costPerUnit: 0, vatRate: 0 };
+                    return (
+                      <div key={row.article} className="flex items-center gap-1 border border-border/50 bg-card px-2 py-1 text-[11px] min-w-[280px]">
+                        <span className="text-muted-foreground truncate max-w-[100px]" title={row.name}>{row.article}</span>
+                        <span className="text-muted-foreground mx-1">|</span>
+                        <span className="text-muted-foreground">Себест:</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={c.costPerUnit || ''}
+                          placeholder="0"
+                          onChange={e => report.updateCost(row.article, 'costPerUnit', parseFloat(e.target.value) || 0)}
+                          className="w-20 bg-transparent border-b border-border focus:border-primary outline-none text-right px-1 tabular-nums"
+                          data-testid={`input-cost-${row.article}`}
+                        />
+                        <span className="text-muted-foreground ml-0.5">₽</span>
+                        <span className="text-muted-foreground mx-1">НДС:</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="20"
+                          value={c.vatRate || ''}
+                          placeholder="0"
+                          onChange={e => report.updateCost(row.article, 'vatRate', parseFloat(e.target.value) || 0)}
+                          className="w-10 bg-transparent border-b border-border focus:border-primary outline-none text-right px-1 tabular-nums"
+                          data-testid={`input-vat-${row.article}`}
+                        />
+                        <span className="text-muted-foreground">%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* SKU TABLE */}
+            <table className="w-full text-xs border-collapse">
+              <thead className="sticky top-[33px] z-10 bg-card">
+                <tr className="border-b border-border">
+                  <th className="text-left px-3 py-2 font-medium text-muted-foreground whitespace-nowrap w-[100px]">Артикул</th>
+                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Название</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Заказы</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Возвраты</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Продажи</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Ср. цена</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Выручка</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Комиссия</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Доставка</th>
+                  {report.format === 'old' && <>
+                    <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Лог.</th>
+                    <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">П. миля</th>
+                  </>}
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Себест.</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Налог</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Прибыль</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Маржа</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.calculatedRows.map((row, idx) => (
+                  <tr
+                    key={row.article}
+                    className={`border-b border-border/30 hover:bg-muted/20 ${idx % 2 === 0 ? '' : 'bg-muted/5'}`}
+                    data-testid={`row-sku-${row.article}`}
+                  >
+                    <td className="px-3 py-1.5 font-medium text-primary/80 whitespace-nowrap">{row.article}</td>
+                    <td className="px-3 py-1.5 text-muted-foreground max-w-[200px] truncate" title={row.name}>{row.name}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(row.ordersCount)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-red-400/70">{row.returnsCount > 0 ? formatNumber(row.returnsCount) : '—'}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(row.salesCount)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.avgPrice > 0 ? formatCurrency(row.avgPrice) : '—'}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums font-medium">{formatCurrency(row.netSales)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-orange-400/80">{row.ozonCommission > 0 ? `-${formatCurrency(row.ozonCommission)}` : '—'}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-blue-400/80">{row.deliveryServices > 0 ? `-${formatCurrency(row.deliveryServices)}` : '—'}</td>
+                    {report.format === 'old' && <>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.logistics > 0 ? `-${formatCurrency(row.logistics)}` : '—'}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.lastMile > 0 ? `-${formatCurrency(row.lastMile)}` : '—'}</td>
+                    </>}
+                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
+                      {row.costTotal > 0 ? `-${formatCurrency(row.costTotal)}` : <span className="text-yellow-400/50">укажите</span>}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.taxAmount > 0 ? `-${formatCurrency(row.taxAmount)}` : '—'}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${row.netProfit > 0 ? 'text-green-400' : 'text-red-400'}`} data-testid={`text-profit-${row.article}`}>
+                      {formatCurrency(row.netProfit)}
+                    </td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums ${row.marginPercent > 20 ? 'text-green-400' : row.marginPercent > 10 ? 'text-yellow-400' : 'text-red-400'}`} data-testid={`text-margin-${row.article}`}>
+                      {formatPercent(row.marginPercent)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {/* MAIN CONTENT */}
-      <main className="flex-1 overflow-hidden flex flex-col bg-muted/20">
-        {calc.rows.length === 0 ? (
-          <div className="flex-1 p-8 flex items-center justify-center">
-            <FileUpload onUpload={calc.setRows} onDemo={calc.loadDemoData} />
-          </div>
-        ) : (
-          <div className="flex-1 overflow-auto">
-            <Table className="border-b">
-              <TableHeader className="bg-card sticky top-0 z-10 outline outline-1 outline-border">
-                <TableRow className="hover:bg-card">
-                  <TableHead className="w-6" />
-                  <TableHead className="w-[200px]">Товар</TableHead>
-                  <TableHead className="text-right">Цена</TableHead>
-                  <TableHead className="text-right">Себест.</TableHead>
-                  <TableHead className="text-right">Расх. Ozon</TableHead>
-                  <TableHead className="text-right">Итого расх.</TableHead>
-                  <TableHead className="text-right">Прибыль</TableHead>
-                  <TableHead className="text-right">Маржа</TableHead>
-                  <TableHead className="text-right">ROI</TableHead>
-                  <TableHead className="text-right">Безубыточность</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {calc.calculatedRows.map((row) => {
-                  const isExpanded = expandedRows.has(row.id);
-                  const bd = row.breakdown;
-                  const totalCost = row.totalExpenses;
-
-                  return (
-                    <>
-                      {/* MAIN ROW */}
-                      <TableRow
-                        key={row.id}
-                        className="group border-b-border/50 cursor-pointer hover:bg-muted/40"
-                        onClick={() => toggleRow(row.id)}
-                        data-testid={`row-product-${row.id}`}
-                      >
-                        <TableCell className="pl-3 pr-0 w-6">
-                          <ChevronRight
-                            className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                          />
-                        </TableCell>
-                        <TableCell className="font-medium" onClick={e => e.stopPropagation()}>
-                          <Input
-                            value={row.name}
-                            onChange={e => calc.updateRow(row.id, 'name', e.target.value)}
-                            className="h-7 text-xs bg-transparent border-transparent hover:border-input focus:border-primary rounded-none shadow-none px-1 -ml-1"
-                            data-testid={`input-name-${row.id}`}
-                          />
-                        </TableCell>
-                        <TableCell className="text-right" onClick={e => e.stopPropagation()}>
-                          <Input
-                            type="number"
-                            value={row.price}
-                            onChange={e => calc.updateRow(row.id, 'price', parseFloat(e.target.value) || 0)}
-                            className="h-7 text-xs text-right bg-transparent border-transparent hover:border-input focus:border-primary rounded-none shadow-none px-1 -mr-1"
-                            data-testid={`input-price-${row.id}`}
-                          />
-                        </TableCell>
-                        <TableCell className="text-right" onClick={e => e.stopPropagation()}>
-                          <Input
-                            type="number"
-                            value={row.cost}
-                            onChange={e => calc.updateRow(row.id, 'cost', parseFloat(e.target.value) || 0)}
-                            className="h-7 text-xs text-right bg-transparent border-transparent hover:border-input focus:border-primary rounded-none shadow-none px-1 -mr-1"
-                            data-testid={`input-cost-${row.id}`}
-                          />
-                        </TableCell>
-                        <TableCell className="text-right text-muted-foreground">{formatCurrency(row.ozonExpenses)}</TableCell>
-                        <TableCell className="text-right text-muted-foreground">{formatCurrency(row.totalExpenses)}</TableCell>
-                        <TableCell className={`text-right font-bold ${row.grossProfit > 0 ? 'text-green-500' : 'text-red-500'}`} data-testid={`text-profit-${row.id}`}>
-                          {formatCurrency(row.grossProfit)}
-                        </TableCell>
-                        <TableCell className={`text-right ${row.marginPercent > 20 ? 'text-green-500' : row.marginPercent > 10 ? 'text-yellow-500' : 'text-red-500'}`} data-testid={`text-margin-${row.id}`}>
-                          {formatPercent(row.marginPercent)}
-                        </TableCell>
-                        <TableCell className="text-right text-muted-foreground">{formatPercent(row.roiPercent)}</TableCell>
-                        <TableCell className="text-right text-muted-foreground">{formatCurrency(row.breakEvenPrice)}</TableCell>
-                      </TableRow>
-
-                      {/* COST BREAKDOWN ROW */}
-                      {isExpanded && (
-                        <TableRow key={`${row.id}-breakdown`} className="bg-muted/10 border-b border-dashed border-border/30 hover:bg-muted/10">
-                          <TableCell />
-                          <TableCell colSpan={9} className="py-3 px-4">
-                            <div className="flex flex-col gap-2">
-                              {/* Bar chart */}
-                              <div className="flex h-5 w-full rounded-sm overflow-hidden gap-px">
-                                {COST_LABELS.map(({ key, label, color }) => {
-                                  const val = bd[key as keyof typeof bd] as number;
-                                  const pct = totalCost > 0 ? (val / totalCost) * 100 : 0;
-                                  if (pct < 0.5) return null;
-                                  return (
-                                    <div
-                                      key={key}
-                                      title={`${label}: ${formatCurrency(val)} (${pct.toFixed(1)}%)`}
-                                      style={{ width: `${pct}%`, backgroundColor: color }}
-                                      className="h-full transition-all"
-                                    />
-                                  );
-                                })}
-                              </div>
-
-                              {/* Cost cards */}
-                              <div className="flex flex-wrap gap-3 mt-1">
-                                {COST_LABELS.map(({ key, label, color }) => {
-                                  const val = bd[key as keyof typeof bd] as number;
-                                  const pct = totalCost > 0 ? (val / totalCost) * 100 : 0;
-                                  return (
-                                    <div
-                                      key={key}
-                                      className="flex items-center gap-1.5 text-[11px]"
-                                      data-testid={`breakdown-${key}-${row.id}`}
-                                    >
-                                      <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />
-                                      <span className="text-muted-foreground">{label}:</span>
-                                      <span className="font-medium">{formatCurrency(val)}</span>
-                                      <span className="text-muted-foreground/60">({pct.toFixed(1)}%)</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-
-                              {/* Summary line */}
-                              <div className="flex items-center gap-4 mt-1 pt-2 border-t border-border/20 text-[11px]">
-                                <span className="text-muted-foreground">Итого затрат:</span>
-                                <span className="font-bold">{formatCurrency(totalCost)}</span>
-                                <span className="text-muted-foreground ml-4">из которых расходы Ozon:</span>
-                                <span className="font-medium text-orange-400">{formatCurrency(row.ozonExpenses)}</span>
-                                <span className="text-muted-foreground ml-2">({totalCost > 0 ? ((row.ozonExpenses / totalCost) * 100).toFixed(1) : 0}% от затрат)</span>
-                              </div>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </main>
-
-      {/* FOOTER STATS */}
-      {calc.rows.length > 0 && (
-        <footer className="flex-none bg-card border-t p-4 flex items-center justify-between text-xs">
-          <div className="flex gap-8">
-            <div>
-              <span className="text-muted-foreground uppercase tracking-wider block text-[10px] mb-1">Выручка итого</span>
-              <span className="font-bold text-lg" data-testid="text-total-revenue">{formatCurrency(totalRevenue)}</span>
-            </div>
-            <div>
-              <span className="text-muted-foreground uppercase tracking-wider block text-[10px] mb-1">Прибыль итого</span>
-              <span className={`font-bold text-lg ${totalProfit > 0 ? 'text-green-500' : 'text-red-500'}`} data-testid="text-total-profit">{formatCurrency(totalProfit)}</span>
-            </div>
-            <div>
-              <span className="text-muted-foreground uppercase tracking-wider block text-[10px] mb-1">Ср. маржа</span>
-              <span className="font-bold text-lg" data-testid="text-avg-margin">{formatPercent(avgMargin * 100)}</span>
-            </div>
-          </div>
-          <div className="flex gap-4 text-right items-center">
-            <div className="px-3 py-1 border border-green-500/20 bg-green-500/10 text-green-500" data-testid="text-profitable-count">
-              {profitableCount} прибыльных
-            </div>
-            <div className="px-3 py-1 border border-red-500/20 bg-red-500/10 text-red-500" data-testid="text-unprofitable-count">
-              {unprofitableCount} убыточных
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => calc.setRows([])} className="text-muted-foreground hover:text-foreground h-auto py-1 px-3 rounded-none uppercase text-[10px]" data-testid="button-clear">
-              Очистить
-            </Button>
-          </div>
-        </footer>
-      )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".xlsx,.xls,.xlsm,.csv"
+        className="hidden"
+        onChange={onFileChange}
+        data-testid="input-file"
+      />
     </div>
   );
 }
