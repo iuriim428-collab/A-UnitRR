@@ -19,28 +19,47 @@ function detectFormat(headers: string[]): ReportFormat {
 }
 
 function findHeader(rows: unknown[][]): { rowIdx: number; colOffset: number; format: ReportFormat } {
-  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+  for (let i = 0; i < Math.min(rows.length, 30); i++) {
     const row = rows[i].map(s);
     for (let j = 0; j < row.length; j++) {
-      if (row[j].toLowerCase() === 'артикул') {
-        const headers = row.slice(j);
-        const fmt = detectFormat(headers);
-        if (fmt !== 'unknown') return { rowIdx: i, colOffset: j, format: fmt };
-      }
+      if (row[j].toLowerCase() !== 'артикул') continue;
+
+      // Skip pivot-table filter rows like "Артикул | All | …"
+      // The real header row has "Название товара" (or similar) right after Артикул
+      const nextNonEmpty = row.slice(j + 1).find(v => v !== '') ?? '';
+      if (/^(all|все|sku)$/i.test(nextNonEmpty)) continue;
+
+      const headers = row.slice(j);
+      const fmt = detectFormat(headers);
+      if (fmt !== 'unknown') return { rowIdx: i, colOffset: j, format: fmt };
     }
   }
   return { rowIdx: -1, colOffset: 0, format: 'unknown' };
 }
 
+function buildColMap(headerRow: string[]): Record<string, number> {
+  // headerRow is the FULL row as strings (absolute indices).
+  // colMap maps lowercase header name → absolute column index.
+  const map: Record<string, number> = {};
+  headerRow.forEach((h, i) => {
+    const key = h.toLowerCase().trim();
+    if (key) map[key] = i;
+  });
+  return map;
+}
+
+// at() looks up a column by name and returns the numeric value at that absolute index.
+function makeAt(colMap: Record<string, number>) {
+  return (row: unknown[], name: string): number => {
+    const idx = colMap[name];
+    return idx != null ? num(row[idx]) : 0;
+  };
+}
+
 function parseNew(rows: unknown[][], ri: number, co: number): OzonReportRow[] {
   const hdr = rows[ri].map(s);
-  const colMap: Record<string, number> = {};
-  hdr.forEach((h, i) => { colMap[h.toLowerCase().trim()] = i; });
-
-  const at = (row: unknown[], name: string) => {
-    const idx = colMap[name];
-    return idx != null ? num(row[co + idx]) : 0;
-  };
+  const colMap = buildColMap(hdr);
+  const at = makeAt(colMap);
 
   const result: OzonReportRow[] = [];
   for (let i = ri + 1; i < rows.length; i++) {
@@ -77,15 +96,10 @@ function parseNew(rows: unknown[][], ri: number, co: number): OzonReportRow[] {
 
 function parseOld(rows: unknown[][], ri: number, co: number): OzonReportRow[] {
   const hdr = rows[ri].map(s);
-  const colMap: Record<string, number> = {};
-  hdr.forEach((h, i) => { colMap[h.toLowerCase().trim()] = i; });
+  const colMap = buildColMap(hdr);
+  const at = makeAt(colMap);
 
-  const at = (row: unknown[], name: string) => {
-    const idx = colMap[name];
-    return idx != null ? num(row[co + idx]) : 0;
-  };
-
-  // "Лoгистика" in old format uses a special cyrillic 'o'
+  // "Лoгистика" in old format uses a special Cyrillic 'о' (U+043E) in place of Latin 'o'
   const logKey = Object.keys(colMap).find(k =>
     /л.гистика, руб/.test(k) && !k.includes('ед') && !k.includes('от') && !k.includes('обратн')
   ) ?? '';
@@ -99,7 +113,7 @@ function parseOld(rows: unknown[][], ri: number, co: number): OzonReportRow[] {
     if (!name || name === '(blank)') continue;
 
     const ordersSum = at(row, 'сумма за заказы, руб');
-    const logVal = logKey ? num(row[co + colMap[logKey]]) : 0;
+    const logVal = logKey ? num(row[colMap[logKey]]) : 0;
 
     result.push({
       article: art,
@@ -126,23 +140,46 @@ function parseOld(rows: unknown[][], ri: number, co: number): OzonReportRow[] {
   return result;
 }
 
+// Prefer sheets that look like Ozon reports by name
+function sortSheets(names: string[]): string[] {
+  const priority = (n: string) => {
+    const l = n.toLowerCase();
+    if (l.includes('ozon') && l.includes('нов')) return 0;
+    if (l.includes('ozon') && l.includes('стар')) return 1;
+    if (l.includes('ozon')) return 2;
+    return 3;
+  };
+  return [...names].sort((a, b) => priority(a) - priority(b));
+}
+
 export async function parseOzonReport(file: File): Promise<{ rows: OzonReportRow[]; format: ReportFormat }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const wb = XLSX.read(e.target?.result, { type: 'array' });
-        for (const sheetName of wb.SheetNames) {
+        const sheetsToTry = sortSheets(wb.SheetNames);
+
+        for (const sheetName of sheetsToTry) {
           const ws = wb.Sheets[sheetName];
           const rawRows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' });
           const { rowIdx, colOffset, format } = findHeader(rawRows);
-          if (rowIdx === -1) continue;
+          if (rowIdx === -1 || format === 'unknown') continue;
+
           const rows = format === 'new'
             ? parseNew(rawRows, rowIdx, colOffset)
             : parseOld(rawRows, rowIdx, colOffset);
-          if (rows.length > 0) { resolve({ rows, format }); return; }
+
+          if (rows.length > 0) {
+            resolve({ rows, format });
+            return;
+          }
         }
-        reject(new Error('Формат не распознан. Загрузите отчёт о реализации из кабинета Ozon (новый или старый формат).'));
+
+        reject(new Error(
+          'Формат не распознан. Загрузите отчёт о реализации из кабинета Ozon ' +
+          '(поддерживаются новый и старый форматы).'
+        ));
       } catch (err) {
         reject(err instanceof Error ? err : new Error(String(err)));
       }
