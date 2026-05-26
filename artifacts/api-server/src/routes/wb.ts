@@ -35,11 +35,15 @@ router.get("/wb/report", async (req, res) => {
         `${WB_BASE}/api/v5/supplier/reportDetailByPeriod` +
         `?dateFrom=${dateFrom}&dateTo=${dateTo}&limit=100000&rrdid=${rrdid}`;
 
-      // JWT tokens (from dev.wildberries.ru) start with eyJ and need Bearer prefix.
-      // Old tokens (from seller.wildberries.ru) are used as-is.
-      const authValue = token.startsWith('eyJ') ? `Bearer ${token}` : token;
       const upstream = await fetch(url, {
-        headers: { Authorization: authValue },
+        headers: {
+          Authorization: token,
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          "Accept": "application/json, text/plain, */*",
+          "Accept-Language": "ru-RU,ru;q=0.9",
+          "Origin": "https://seller.wildberries.ru",
+          "Referer": "https://seller.wildberries.ru/",
+        },
         signal: AbortSignal.timeout(30_000),
       });
 
