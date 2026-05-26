@@ -1,6 +1,7 @@
 /**
  * Wildberries Statistics API client + parser.
- * Data is fetched via the /api/wb/report proxy on our own server.
+ * Requests are made directly from the browser (user's IP) to avoid cloud-IP blocks.
+ * WB Statistics API requires a token from dev.wildberries.ru with "Статистика" permission.
  */
 import { OzonReportRow } from '../types';
 
@@ -29,26 +30,65 @@ export interface WBDetailRow {
   retail_amount: number;
 }
 
+const WB_BASE = 'https://statistics-api.wildberries.ru';
+
 // ─── Fetch ────────────────────────────────────────────────────────────────────
+/**
+ * Fetches all pages of WB reportDetailByPeriod directly from the browser.
+ * This bypasses any cloud-IP blocks on the server proxy.
+ */
 export async function fetchWBReport(
   token: string,
   dateFrom: string,
   dateTo: string,
   onProgress?: (rows: number) => void,
 ): Promise<WBDetailRow[]> {
-  const url = `/api/wb/report?dateFrom=${dateFrom}&dateTo=${dateTo}`;
-  const resp = await fetch(url, {
-    headers: { 'X-WB-Token': token },
-  });
+  const allRows: WBDetailRow[] = [];
+  let rrdid = 0;
 
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({ error: resp.statusText }));
-    throw new Error(body?.error ?? `HTTP ${resp.status}`);
+  while (true) {
+    const url =
+      `${WB_BASE}/api/v5/supplier/reportDetailByPeriod` +
+      `?dateFrom=${dateFrom}&dateTo=${dateTo}&limit=100000&rrdid=${rrdid}`;
+
+    const resp = await fetch(url, {
+      headers: { Authorization: token },
+    });
+
+    if (!resp.ok) {
+      let errMsg = `HTTP ${resp.status}`;
+      try {
+        const body = await resp.json();
+        if (resp.status === 429 && (body?.origin === 's2s-api-auth-stat' || body?.detail?.includes('dev.wildberries.ru'))) {
+          errMsg =
+            'WB изменили аутентификацию Statistics API (новость #281). ' +
+            'Создайте новый токен на dev.wildberries.ru → API-ключи → Статистика.';
+        } else if (resp.status === 429) {
+          errMsg = 'Превышен лимит запросов WB. Подождите 1 минуту и повторите.';
+        } else if (resp.status === 401 || resp.status === 403) {
+          errMsg = `Неверный токен WB (${resp.status}). Проверьте токен на dev.wildberries.ru.`;
+        } else {
+          errMsg = body?.message ?? body?.error ?? errMsg;
+        }
+      } catch {
+        // ignore json parse error
+      }
+      throw new Error(errMsg);
+    }
+
+    const page = (await resp.json()) as WBDetailRow[];
+    if (!Array.isArray(page) || page.length === 0) break;
+
+    allRows.push(...page);
+    onProgress?.(allRows.length);
+
+    const last = page[page.length - 1];
+    rrdid = Number(last?.rrd_id ?? 0);
+
+    if (page.length < 100_000) break;
   }
 
-  const rows = (await resp.json()) as WBDetailRow[];
-  onProgress?.(rows.length);
-  return rows;
+  return allRows;
 }
 
 // ─── Parser ───────────────────────────────────────────────────────────────────
