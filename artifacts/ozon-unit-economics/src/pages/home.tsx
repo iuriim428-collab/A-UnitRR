@@ -1,10 +1,11 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useMarketplace, FilterType, MarketplaceKind } from '../hooks/use-marketplace';
 import { useOzonApi } from '../hooks/use-ozon-api';
 import { useYmApi } from '../hooks/use-ym-api';
 import { useWildberries } from '../hooks/use-wildberries';
 import { supportsFolderPicker, pickFolder } from '../lib/folder-reader';
 import { exportToExcel } from '../lib/excel';
+import { isLocalProxyAvailable } from '../lib/wb-api';
 import { formatCurrency, formatPercent, formatNumber } from '../lib/utils';
 import { TaxSettings, TaxType, CalculatedRow, ReportSummary } from '../types';
 import {
@@ -703,7 +704,19 @@ function WbTabContent({ wb }: { wb: ReturnType<typeof useWildberries> }) {
   const [editingArticle, setEditingArticle] = useState<string | null>(null);
   const [adSpend, setAdSpendState] = useState<number>(() => parseFloat(localStorage.getItem('wb_ad_spend') ?? '0') || 0);
   const setAdSpend = (v: number) => { setAdSpendState(v); localStorage.setItem('wb_ad_spend', String(v)); };
+  const [localProxy, setLocalProxy] = useState<boolean | null>(null);
   const hasData = wb.rows.length > 0;
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      const ok = await isLocalProxyAvailable();
+      if (!cancelled) setLocalProxy(ok);
+    };
+    check();
+    const interval = setInterval(check, 5000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
 
   const setThisMonth = () => {
     const d = new Date();
@@ -740,7 +753,13 @@ function WbTabContent({ wb }: { wb: ReturnType<typeof useWildberries> }) {
           dateFrom={wb.dateFrom} setDateFrom={wb.setDateFrom}
           dateTo={wb.dateTo}     setDateTo={wb.setDateTo}
           loading={wb.loading}   error={wb.error}
-          statusLine={wb.rowCount !== null ? `Загружено ${wb.rowCount.toLocaleString('ru')} строк · ${wb.rows.length} SKU` : undefined}
+          statusLine={wb.rowCount !== null
+            ? `Загружено ${wb.rowCount.toLocaleString('ru')} строк · ${wb.rows.length} SKU`
+            : localProxy === true
+              ? '🟢 Локальный прокси подключён — запросы идут с вашего IP'
+              : localProxy === false
+                ? '🔴 Локальный прокси не запущен — запросы идут через облако (может блокироваться WB)'
+                : undefined}
           onLoad={wb.loadReport}
           onClear={hasData ? wb.clear : undefined}
           hasData={hasData}
@@ -759,18 +778,41 @@ function WbTabContent({ wb }: { wb: ReturnType<typeof useWildberries> }) {
           </>
         ) : (
           !wb.loading && (
-            <ApiEmptyState
-              icon={<Key className="w-6 h-6 text-violet-400" />}
-              title="Подключение к Wildberries API"
-              hint="Вставьте API-токен в поле выше и нажмите «Загрузить»"
-              steps={[
-                '1. Откройте dev.wildberries.ru (портал разработчика)',
-                '2. Создайте API-ключ с правом «Статистика» (новый формат)',
-                '3. Скопируйте ключ и вставьте в поле выше',
-                '4. Выберите период и нажмите «Загрузить»',
-                '⚠️ Старые токены из seller.wildberries.ru не работают (WB #281)',
-              ]}
-            />
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center max-w-md space-y-4">
+                <div className="w-14 h-14 mx-auto bg-muted/20 border border-border/50 flex items-center justify-center">
+                  <Key className="w-6 h-6 text-violet-400" />
+                </div>
+                <div>
+                  <p className="text-base font-medium">Подключение к Wildberries API</p>
+                  <p className="text-xs text-muted-foreground mt-1">Вставьте API-токен в поле выше и нажмите «Загрузить»</p>
+                </div>
+
+                {/* Local proxy status */}
+                <div className={`text-[11px] border px-4 py-2 text-left ${localProxy ? 'border-green-500/40 bg-green-950/20 text-green-400' : 'border-yellow-500/40 bg-yellow-950/20 text-yellow-400'}`}>
+                  {localProxy
+                    ? '🟢 Локальный прокси работает — запросы идут с вашего IP'
+                    : '🔴 Локальный прокси не запущен. WB блокирует облачные IP.'}
+                </div>
+
+                <div className="text-[11px] text-left border border-border/40 bg-muted/10 px-4 py-3 space-y-1.5 text-muted-foreground">
+                  <p className="font-medium text-foreground mb-2">Шаг 1 — токен:</p>
+                  <p>1. Откройте dev.wildberries.ru</p>
+                  <p>2. Создайте API-ключ с правом «Статистика»</p>
+                  <p>3. Вставьте в поле «API-токен» выше</p>
+                </div>
+
+                <div className="text-[11px] text-left border border-violet-500/30 bg-violet-950/10 px-4 py-3 space-y-1.5 text-muted-foreground">
+                  <p className="font-medium text-foreground mb-2">Шаг 2 — локальный прокси (обязательно):</p>
+                  <p>WB блокирует облачные сервера. Запустите прокси на своём компьютере:</p>
+                  <p className="mt-2 font-mono text-[10px] bg-muted/20 px-2 py-1 rounded text-foreground select-all">
+                    node local-wb-proxy.mjs
+                  </p>
+                  <p className="mt-1">Файл <span className="font-mono">local-wb-proxy.mjs</span> — в корне проекта.</p>
+                  <p>После запуска статус выше изменится на 🟢.</p>
+                </div>
+              </div>
+            </div>
           )
         )}
       </div>

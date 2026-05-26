@@ -1,6 +1,9 @@
 /**
  * Wildberries Statistics API client + parser.
- * Data is fetched via the /api/wb/report proxy on our own server.
+ *
+ * Request priority:
+ * 1. http://localhost:3001 — local proxy (user's IP, no cloud block)
+ * 2. /api/wb/report        — Replit server proxy (fallback, may be cloud-IP blocked)
  */
 import { OzonReportRow } from '../types';
 
@@ -29,78 +32,86 @@ export interface WBDetailRow {
   retail_amount: number;
 }
 
-const WB_DIRECT = 'https://statistics-api.wildberries.ru';
+const LOCAL_PROXY = 'http://localhost:3001';
+
+// ─── Local proxy health check ──────────────────────────────────────────────────
+/** Returns true if local proxy is running on localhost:3001. */
+export async function isLocalProxyAvailable(): Promise<boolean> {
+  try {
+    const resp = await fetch(`${LOCAL_PROXY}/api/wb/health`, {
+      signal: AbortSignal.timeout(1500),
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ─── Internal fetch helper ─────────────────────────────────────────────────────
+async function fetchAllPages(
+  baseUrl: string,
+  headers: Record<string, string>,
+  dateFrom: string,
+  dateTo: string,
+  onProgress?: (rows: number) => void,
+): Promise<WBDetailRow[]> {
+  const allRows: WBDetailRow[] = [];
+  let rrdid = 0;
+
+  while (true) {
+    const url =
+      `${baseUrl}/api/wb/report?dateFrom=${dateFrom}&dateTo=${dateTo}` +
+      (rrdid ? `&rrdid=${rrdid}` : '');
+
+    const resp = await fetch(url, { headers });
+
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({ error: resp.statusText }));
+      throw new Error(body?.error ?? `HTTP ${resp.status}`);
+    }
+
+    const page = (await resp.json()) as WBDetailRow[];
+    if (!Array.isArray(page) || page.length === 0) break;
+
+    allRows.push(...page);
+    onProgress?.(allRows.length);
+
+    const last = page[page.length - 1];
+    rrdid = Number(last?.rrd_id ?? 0);
+    if (page.length < 100_000) break;
+  }
+
+  return allRows;
+}
 
 // ─── Fetch ────────────────────────────────────────────────────────────────────
-/**
- * Tries direct browser request first (user's IP); falls back to server proxy.
- * Direct mode avoids cloud-IP blocks but requires CORS support from WB.
- */
 export async function fetchWBReport(
   token: string,
   dateFrom: string,
   dateTo: string,
   onProgress?: (rows: number) => void,
 ): Promise<WBDetailRow[]> {
-  // --- Try direct browser request first ---
-  const directUrl =
-    `${WB_DIRECT}/api/v5/supplier/reportDetailByPeriod` +
-    `?dateFrom=${dateFrom}&dateTo=${dateTo}&limit=100000&rrdid=0`;
-  try {
-    const directResp = await fetch(directUrl, {
-      headers: { Authorization: token },
-    });
-    if (directResp.ok) {
-      const allRows: WBDetailRow[] = [];
-      let rrdid = 0;
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const url =
-          `${WB_DIRECT}/api/v5/supplier/reportDetailByPeriod` +
-          `?dateFrom=${dateFrom}&dateTo=${dateTo}&limit=100000&rrdid=${rrdid}`;
-        const resp = await fetch(url, { headers: { Authorization: token } });
-        if (!resp.ok) break;
-        const page = (await resp.json()) as WBDetailRow[];
-        if (!Array.isArray(page) || page.length === 0) break;
-        allRows.push(...page);
-        onProgress?.(allRows.length);
-        const last = page[page.length - 1];
-        rrdid = Number(last?.rrd_id ?? 0);
-        if (page.length < 100_000) break;
-      }
-      return allRows;
-    }
-    // Non-ok but reachable (no CORS block) → parse error
-    const body = await directResp.json().catch(() => ({} as Record<string, unknown>));
-    const isAuthChange = String(body?.origin) === 's2s-api-auth-stat' || String(body?.detail).includes('dev.wildberries.ru');
-    if (isAuthChange) {
-      throw new Error(
-        'WB изменили аутентификацию Statistics API (новость #281). ' +
-        'Создайте новый токен на dev.wildberries.ru → API-ключи → Статистика.'
-      );
-    }
-    if (directResp.status === 401 || directResp.status === 403) {
-      throw new Error(`Неверный токен WB (${directResp.status}).`);
-    }
-    throw new Error(`WB API ошибка ${directResp.status}`);
-  } catch (e) {
-    if (e instanceof TypeError && e.message.includes('fetch')) {
-      // CORS/network block → fall through to server proxy
-      console.warn('[WB] Direct browser request blocked (CORS), trying server proxy');
-    } else {
-      throw e; // real API error, propagate
-    }
+  // 1. Try local proxy (user's IP — no cloud block)
+  const localAvailable = await isLocalProxyAvailable();
+  if (localAvailable) {
+    return fetchAllPages(
+      LOCAL_PROXY,
+      { 'X-WB-Token': token },
+      dateFrom,
+      dateTo,
+      onProgress,
+    );
   }
 
-  // --- Fallback: server proxy ---
+  // 2. Fall back to Replit server proxy
   const url = `/api/wb/report?dateFrom=${dateFrom}&dateTo=${dateTo}`;
-  const resp = await fetch(url, {
-    headers: { 'X-WB-Token': token },
-  });
+  const resp = await fetch(url, { headers: { 'X-WB-Token': token } });
+
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({ error: resp.statusText }));
     throw new Error(body?.error ?? `HTTP ${resp.status}`);
   }
+
   const rows = (await resp.json()) as WBDetailRow[];
   onProgress?.(rows.length);
   return rows;
