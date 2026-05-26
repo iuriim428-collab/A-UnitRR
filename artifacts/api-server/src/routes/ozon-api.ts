@@ -240,4 +240,156 @@ router.post("/ozon/product-lookup", async (req, res) => {
   }
 });
 
+/**
+ * POST /api/ozon/performance-report
+ * Headers: X-Perf-Client-Id, X-Perf-Client-Secret
+ * Body: { dateFrom: "YYYY-MM-DD", dateTo: "YYYY-MM-DD" }
+ *
+ * Fetches Ozon Performance API (advertising) data:
+ *  - list of campaigns with statistics (spend, views, clicks, orders, revenue, ДРР)
+ *  - per-article (offer_id) ad spend breakdown (spend distributed across products in each campaign)
+ */
+const PERF_BASE = "https://performance.ozon.ru";
+
+interface PerfCampaignRaw {
+  id: string;
+  title: string;
+  state: string;
+  advObjectType: string;
+  budget: number;
+  dailyBudget: number;
+}
+
+interface PerfStatRaw {
+  id: string;
+  moneySpent: string | number;
+  views: number;
+  clicks: number;
+  orders: number;
+  revenue: string | number;
+}
+
+interface PerfObjectRaw {
+  id?: string;
+  article?: string;
+  name?: string;
+  title?: string;
+  status?: string;
+}
+
+router.post("/ozon/performance-report", async (req, res) => {
+  const perfClientId     = req.headers["x-perf-client-id"];
+  const perfClientSecret = req.headers["x-perf-client-secret"];
+
+  if (!perfClientId || !perfClientSecret) {
+    res.status(401).json({ error: "Нужны заголовки X-Perf-Client-Id и X-Perf-Client-Secret" });
+    return;
+  }
+
+  const { dateFrom, dateTo } = req.body as { dateFrom?: string; dateTo?: string };
+  if (!dateFrom || !dateTo) {
+    res.status(400).json({ error: "Нужны параметры dateFrom и dateTo" });
+    return;
+  }
+
+  req.log.info({ dateFrom, dateTo }, "perf report fetch");
+
+  try {
+    // 1. OAuth token
+    const tokenResp = await fetch(`${PERF_BASE}/api/client/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({
+        client_id: String(perfClientId),
+        client_secret: String(perfClientSecret),
+        grant_type: "client_credentials",
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const tokenData = await tokenResp.json() as { access_token?: string; error_description?: string; message?: string };
+    if (!tokenResp.ok) {
+      const msg = tokenData.error_description ?? tokenData.message ?? `Ошибка авторизации (${tokenResp.status})`;
+      res.status(401).json({ error: `Performance API: ${msg}` });
+      return;
+    }
+    const auth = `Bearer ${tokenData.access_token}`;
+
+    // 2. Campaigns list
+    const campResp = await fetch(`${PERF_BASE}/api/client/campaign`, {
+      headers: { Authorization: auth, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    const campData = await campResp.json() as { list?: PerfCampaignRaw[] };
+    const campaigns: PerfCampaignRaw[] = campData.list ?? [];
+
+    if (campaigns.length === 0) {
+      res.json({ campaigns: [], spendByArticle: {} });
+      return;
+    }
+
+    // 3. Statistics for all campaigns (synchronous JSON endpoint)
+    const campIds = campaigns.map(c => c.id);
+    const statsResp = await fetch(`${PERF_BASE}/api/client/statistics/json`, {
+      method: "POST",
+      headers: { Authorization: auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ campaigns: campIds, dateFrom, dateTo, groupBy: "NO_GROUP_BY" }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const statsData = await statsResp.json() as { statistics?: PerfStatRaw[] };
+    const statsMap = new Map<string, PerfStatRaw>();
+    for (const s of statsData.statistics ?? []) statsMap.set(s.id, s);
+
+    // 4. Per-campaign: get objects (products) and distribute spend by article
+    const spendByArticle: Record<string, number> = {};
+    const results: Array<{
+      id: string; title: string; state: string; type: string;
+      budget: number; moneySpent: number; views: number; clicks: number;
+      orders: number; revenue: number; drr: number; productsCount: number;
+    }> = [];
+
+    for (const camp of campaigns) {
+      const s = statsMap.get(camp.id);
+      const moneySpent = parseFloat(String(s?.moneySpent ?? 0)) || 0;
+      const revenue    = parseFloat(String(s?.revenue    ?? 0)) || 0;
+      const views      = s?.views  ?? 0;
+      const clicks     = s?.clicks ?? 0;
+      const orders     = s?.orders ?? 0;
+      const drr        = revenue > 0 ? (moneySpent / revenue) * 100 : 0;
+
+      let products: PerfObjectRaw[] = [];
+      try {
+        const objResp = await fetch(`${PERF_BASE}/api/client/campaign/${camp.id}/objects`, {
+          headers: { Authorization: auth, "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (objResp.ok) {
+          const objData = await objResp.json() as { list?: PerfObjectRaw[] };
+          products = objData.list ?? [];
+        }
+      } catch { /* skip failed objects fetch */ }
+
+      if (moneySpent > 0 && products.length > 0) {
+        const perProduct = moneySpent / products.length;
+        for (const p of products) {
+          const article = p.article ?? "";
+          if (article) spendByArticle[article] = (spendByArticle[article] ?? 0) + perProduct;
+        }
+      }
+
+      results.push({
+        id: camp.id, title: camp.title, state: camp.state, type: camp.advObjectType,
+        budget: camp.budget ?? 0, moneySpent, views, clicks, orders, revenue, drr,
+        productsCount: products.length,
+      });
+    }
+
+    req.log.info({ campaigns: results.length, skus: Object.keys(spendByArticle).length }, "perf report done");
+    res.json({ campaigns: results, spendByArticle });
+
+  } catch (err) {
+    req.log.error({ err }, "perf report error");
+    res.status(502).json({ error: "Не удалось связаться с Ozon Performance API" });
+  }
+});
+
 export default router;

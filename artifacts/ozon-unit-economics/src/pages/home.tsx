@@ -3,6 +3,7 @@ import { useMarketplace, FilterType, MarketplaceKind } from '../hooks/use-market
 import { useOzonApi } from '../hooks/use-ozon-api';
 import { useYmApi } from '../hooks/use-ym-api';
 import { useWildberries } from '../hooks/use-wildberries';
+import { usePerfApi, type PerfCampaign } from '../hooks/use-perf-api';
 import { supportsFolderPicker, pickFolder } from '../lib/folder-reader';
 import { exportToExcel } from '../lib/excel';
 import { isLocalProxyAvailable } from '../lib/wb-api';
@@ -11,7 +12,7 @@ import { TaxSettings, TaxType, CalculatedRow, ReportSummary } from '../types';
 import {
   Upload, Download, Trash2, FolderOpen, FileSpreadsheet,
   Pencil, CheckCircle, AlertCircle, RefreshCw, Key, Calendar,
-  Eye, EyeOff, Folder, Globe,
+  Eye, EyeOff, Folder, Globe, Megaphone, TrendingUp, ChevronDown, ChevronUp,
 } from 'lucide-react';
 
 // ─── ABC analysis ──────────────────────────────────────────────────────────────
@@ -84,8 +85,9 @@ function ModeToggle({ mode, onChange }: { mode: 'files' | 'api'; onChange: (m: '
 }
 
 // ─── Summary sidebar ──────────────────────────────────────────────────────────
-function SummarySidebar({ s, hasCosts, adSpend, setAdSpend }: {
+function SummarySidebar({ s, hasCosts, adSpend, setAdSpend, perfTotal }: {
   s: ReportSummary; hasCosts: boolean; adSpend: number; setAdSpend: (v: number) => void;
+  perfTotal?: number;
 }) {
   const [adInput, setAdInput] = useState(adSpend > 0 ? String(adSpend) : '');
   const adjProfit = s.netProfit - adSpend;
@@ -128,7 +130,7 @@ function SummarySidebar({ s, hasCosts, adSpend, setAdSpend }: {
       <MetricRow label="Налог" value={s.taxAmount > 0 ? `-${formatCurrency(s.taxAmount)}` : '—'} />
 
       {/* Ad spend — editable total */}
-      <SectionHdr>Реклама (общие)</SectionHdr>
+      <SectionHdr>Реклама {perfTotal !== undefined && perfTotal > 0 ? <span className="text-yellow-400/70 normal-case">· Performance API</span> : '(общие)'}</SectionHdr>
       <div className="flex items-center gap-1">
         <input
           type="number" min="0" step="any"
@@ -204,14 +206,16 @@ function CostEditor({ article, costPerUnit, vatRate, onChangeCost, onChangeVat, 
 }
 
 // ─── SKU table ────────────────────────────────────────────────────────────────
-function SkuTable({ rows, costs, editingArticle, setEditing, updateCost }: {
+function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendByArticle }: {
   rows: CalculatedRow[];
   costs: Record<string, { costPerUnit: number; vatRate: number }>;
   editingArticle: string | null;
   setEditing: (a: string | null) => void;
   updateCost: (article: string, field: 'costPerUnit' | 'vatRate', value: number) => void;
+  spendByArticle?: Record<string, number>;
 }) {
   const abcMap = useMemo(() => computeAbcMap(rows), [rows]);
+  const hasPerfData = spendByArticle !== undefined;
 
   const cols = ['ABC','Артикул','Название','Прод.','Возвр.','Ср. цена','Выручка','Комиссия','Доставка','Партнёры','Хранение'];
   return (
@@ -221,6 +225,13 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost }: {
           {cols.map(h => (
             <th key={h} className={`px-3 py-2 font-medium text-muted-foreground whitespace-nowrap ${h === 'Артикул' || h === 'Название' ? 'text-left' : h === 'ABC' ? 'text-center' : 'text-right'}`}>{h}</th>
           ))}
+          {hasPerfData && (
+            <th className="text-right px-3 py-2 font-medium whitespace-nowrap">
+              <span className="text-yellow-400/80 flex items-center justify-end gap-1">
+                <Megaphone className="w-2.5 h-2.5" />ДРР%
+              </span>
+            </th>
+          )}
           <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">
             <span className="flex items-center justify-end gap-1">Себест. <Pencil className="w-2.5 h-2.5 text-primary/60" /></span>
           </th>
@@ -234,6 +245,8 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost }: {
           const isEditing = editingArticle === row.article;
           const c   = costs[row.article] ?? { costPerUnit: 0, vatRate: 0 };
           const abc = abcMap.get(row.article);
+          const perfSpend = hasPerfData ? (spendByArticle?.[row.article] ?? 0) : 0;
+          const perfDrr   = (hasPerfData && perfSpend > 0 && row.netSales > 0) ? (perfSpend / row.netSales) * 100 : 0;
           return (
             <tr key={row.article} className={`border-b border-border/30 hover:bg-muted/20 ${idx % 2 ? 'bg-muted/5' : ''}`}>
               <td className="px-2 py-1.5 text-center">
@@ -253,6 +266,16 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost }: {
               <td className="px-3 py-1.5 text-right tabular-nums text-blue-400/80">{row.deliveryServices > 0 ? `-${formatCurrency(row.deliveryServices)}` : '—'}</td>
               <td className="px-3 py-1.5 text-right tabular-nums text-purple-400/80">{row.agentServices > 0 ? `-${formatCurrency(row.agentServices)}` : '—'}</td>
               <td className="px-3 py-1.5 text-right tabular-nums text-cyan-400/80">{(row.storage + row.fboServices) > 0 ? `-${formatCurrency(row.storage + row.fboServices)}` : '—'}</td>
+              {hasPerfData && (
+                <td className="px-3 py-1.5 text-right tabular-nums">
+                  {perfDrr > 0
+                    ? <span className={perfDrr > 30 ? 'text-red-400' : perfDrr > 15 ? 'text-yellow-400' : 'text-green-400/80'}>
+                        {perfDrr.toFixed(1)}%
+                      </span>
+                    : <span className="text-muted-foreground/30">—</span>
+                  }
+                </td>
+              )}
               <td className="px-1 py-0.5 text-right" onClick={e => { e.stopPropagation(); setEditing(row.article); }}>
                 {isEditing ? (
                   <CostEditor article={row.article} costPerUnit={c.costPerUnit} vatRate={c.vatRate}
@@ -277,6 +300,135 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost }: {
         })}
       </tbody>
     </table>
+  );
+}
+
+// ─── Performance API bar ──────────────────────────────────────────────────────
+function PerfApiBar({ clientId, setClientId, clientSecret, setClientSecret,
+  loading, error, hasData, onLoad, onClear }: {
+  clientId: string; setClientId: (v: string) => void;
+  clientSecret: string; setClientSecret: (v: string) => void;
+  loading: boolean; error: string | null; hasData: boolean;
+  onLoad: () => void; onClear: () => void;
+}) {
+  const [showSecret, setShowSecret] = useState(false);
+  return (
+    <div className="flex-none border-b border-yellow-500/20 bg-yellow-500/5 px-4 py-2 text-[11px]" onClick={e => e.stopPropagation()}>
+      <div className="flex items-center gap-3 flex-wrap">
+        <Megaphone className="w-3.5 h-3.5 text-yellow-400/80 flex-shrink-0" />
+        <span className="text-yellow-400/80 font-medium whitespace-nowrap">Performance API (реклама):</span>
+        <div className="flex items-center gap-1.5 flex-1 min-w-[160px]">
+          <span className="text-muted-foreground whitespace-nowrap">Client-Id:</span>
+          <input type="text" value={clientId} onChange={e => setClientId(e.target.value)}
+            placeholder="12345"
+            className="flex-1 bg-muted/30 border border-yellow-500/30 px-2 py-1 text-[11px] font-mono outline-none focus:border-yellow-500/60 placeholder:text-muted-foreground/40" />
+        </div>
+        <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
+          <span className="text-muted-foreground whitespace-nowrap">Client-Secret:</span>
+          <div className="relative flex-1">
+            <input type={showSecret ? 'text' : 'password'} value={clientSecret} onChange={e => setClientSecret(e.target.value)}
+              placeholder="xxxxxxxx-xxxx-…"
+              className="w-full bg-muted/30 border border-yellow-500/30 px-2 py-1 pr-7 text-[11px] font-mono outline-none focus:border-yellow-500/60 placeholder:text-muted-foreground/40" />
+            <button onClick={() => setShowSecret(v => !v)}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground">
+              {showSecret ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+            </button>
+          </div>
+        </div>
+        <button onClick={onLoad} disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-600 hover:bg-yellow-500 text-white disabled:opacity-50 transition-colors font-medium text-[11px]">
+          {loading
+            ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" />Загружаю…</>
+            : <><TrendingUp className="w-3.5 h-3.5" />Загрузить рекламу</>
+          }
+        </button>
+        {hasData && (
+          <button onClick={onClear} className="flex items-center gap-1 text-muted-foreground hover:text-red-400 px-2 py-1 border border-border/50 text-[11px]">
+            <Trash2 className="w-3 h-3" /> Сбросить
+          </button>
+        )}
+      </div>
+      {error && (
+        <div className="mt-1.5 flex items-center gap-2 text-red-400 border border-red-400/20 bg-red-400/5 px-3 py-1">
+          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /><span>{error}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Campaigns panel ──────────────────────────────────────────────────────────
+function CampaignsPanel({ campaigns, spendByArticle, onClear }: {
+  campaigns: PerfCampaign[];
+  spendByArticle: Record<string, number>;
+  onClear: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const totalSpend   = campaigns.reduce((s, c) => s + c.moneySpent, 0);
+  const totalRevenue = campaigns.reduce((s, c) => s + c.revenue, 0);
+  const totalOrders  = campaigns.reduce((s, c) => s + c.orders, 0);
+  const totalDrr     = totalRevenue > 0 ? (totalSpend / totalRevenue) * 100 : 0;
+  const skuCount     = Object.keys(spendByArticle).length;
+
+  return (
+    <div className="flex-none border-b border-yellow-500/20 bg-yellow-500/5">
+      <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] cursor-pointer hover:bg-yellow-500/10"
+        onClick={() => setExpanded(v => !v)}>
+        <Megaphone className="w-3.5 h-3.5 text-yellow-400/80 flex-shrink-0" />
+        <span className="font-medium text-yellow-400/80">Performance API</span>
+        <span className="text-muted-foreground">
+          {campaigns.length} {campaigns.length === 1 ? 'кампания' : campaigns.length < 5 ? 'кампании' : 'кампаний'}
+          {' · '}-{formatCurrency(totalSpend)}
+          {' · '}ДРР {totalDrr > 0 ? `${totalDrr.toFixed(1)}%` : '—'}
+          {totalOrders > 0 && ` · ${formatNumber(totalOrders)} заказов`}
+          {skuCount > 0 && ` · ${skuCount} SKU`}
+        </span>
+        <div className="flex-1" />
+        <button onClick={e => { e.stopPropagation(); onClear(); }}
+          className="text-muted-foreground/40 hover:text-red-400 px-1 text-xs" title="Сбросить рекламные данные">✕</button>
+        {expanded ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground/50" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground/50" />}
+      </div>
+
+      {expanded && (
+        <div className="border-t border-yellow-500/20 overflow-x-auto">
+          <table className="w-full text-[11px] border-collapse">
+            <thead>
+              <tr className="border-b border-border/30 bg-card/50">
+                {['Кампания','Тип','Статус','Товаров','Расход','Показы','Клики','CTR','Заказы','Выручка с рекл.','ДРР'].map((h, i) => (
+                  <th key={h} className={`px-3 py-1.5 font-medium text-muted-foreground whitespace-nowrap ${i < 3 ? 'text-left' : 'text-right'}`}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {campaigns.map(c => {
+                const ctr = (c.clicks > 0 && c.views > 0) ? (c.clicks / c.views * 100) : 0;
+                return (
+                  <tr key={c.id} className="border-b border-border/20 hover:bg-muted/10">
+                    <td className="px-3 py-1.5 max-w-[200px] truncate font-medium" title={c.title}>{c.title || c.id}</td>
+                    <td className="px-3 py-1.5 text-muted-foreground text-[10px]">{c.type}</td>
+                    <td className="px-3 py-1.5">
+                      <span className={`text-[10px] px-1.5 py-0.5 ${c.state.includes('RUNNING') ? 'bg-green-500/20 text-green-400' : 'bg-muted/30 text-muted-foreground'}`}>
+                        {c.state.replace('CAMPAIGN_STATE_', '')}
+                      </span>
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{c.productsCount || '—'}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-red-400/80">{c.moneySpent > 0 ? `-${formatCurrency(c.moneySpent)}` : '—'}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{c.views > 0 ? formatNumber(c.views) : '—'}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{c.clicks > 0 ? formatNumber(c.clicks) : '—'}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{ctr > 0 ? `${ctr.toFixed(2)}%` : '—'}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{c.orders > 0 ? formatNumber(c.orders) : '—'}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{c.revenue > 0 ? formatCurrency(c.revenue) : '—'}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums font-medium ${c.drr > 30 ? 'text-red-400' : c.drr > 15 ? 'text-yellow-400' : c.drr > 0 ? 'text-green-400' : 'text-muted-foreground'}`}>
+                      {c.drr > 0 ? `${c.drr.toFixed(1)}%` : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -529,13 +681,32 @@ function OzonTabContent({ mp, api }: {
   const [adSpend, setAdSpendState] = useState<number>(() => parseFloat(localStorage.getItem('ozon_ad_spend') ?? '0') || 0);
   const setAdSpend = (v: number) => { setAdSpendState(v); localStorage.setItem('ozon_ad_spend', String(v)); };
 
+  const perfApi = usePerfApi();
+
+  // Auto-apply Performance API total spend when report loads
+  useEffect(() => {
+    if (perfApi.report) {
+      const total = Object.values(perfApi.report.spendByArticle).reduce((s, v) => s + v, 0);
+      if (total > 0) setAdSpend(Math.round(total));
+    }
+  }, [perfApi.report]);
+
   // Active data source
-  const active   = mode === 'files' ? mp  : api;
-  const hasData  = active.rows.length > 0;
+  const active  = mode === 'files' ? mp  : api;
+  const hasData = active.rows.length > 0;
+
+  // Date range used for Performance API (from api or today-range)
+  const perfDateFrom = api.dateFrom;
+  const perfDateTo   = api.dateTo;
 
   const handleSelectFolder = async () => {
     try { const h = await pickFolder(); if (h) await mp.loadFolder(h); } catch {}
   };
+
+  const perfTotal = useMemo(() => {
+    if (!perfApi.report) return undefined;
+    return Object.values(perfApi.report.spendByArticle).reduce((s, v) => s + v, 0);
+  }, [perfApi.report]);
 
   const mkExport = (prefix: string) => () => exportToExcel(
     active.calculatedRows.map(r => ({
@@ -546,16 +717,20 @@ function OzonTabContent({ mp, api }: {
       'Продвижение, руб': r.promotion, 'Хранение, руб': r.storage,
       'Себестоимость, руб': r.costTotal, 'Налог, руб': r.taxAmount,
       'Прибыль, руб': r.netProfit, 'Маржа, %': r.marginPercent.toFixed(1),
+      ...(perfApi.report ? { 'ДРР, %': ((perfApi.report.spendByArticle[r.article] ?? 0) / (r.netSales || 1) * 100).toFixed(1) } : {}),
     })),
     `${prefix}_unit_economics.xlsx`
   );
 
   return (
     <div className="flex-1 flex overflow-hidden">
-      {hasData && <SummarySidebar s={active.summary} hasCosts={active.hasCosts} adSpend={adSpend} setAdSpend={setAdSpend} />}
+      {hasData && (
+        <SummarySidebar s={active.summary} hasCosts={active.hasCosts}
+          adSpend={adSpend} setAdSpend={setAdSpend} perfTotal={perfTotal} />
+      )}
       <div className="flex-1 flex flex-col overflow-hidden" onClick={() => setEditingArticle(null)}>
 
-        {/* Mode toggle always visible */}
+        {/* Mode toggle always visible when no data */}
         {!hasData && (
           <div className="flex-none flex items-center gap-3 px-4 py-2 border-b border-border/50 bg-card">
             <span className="text-[11px] text-muted-foreground">Источник данных:</span>
@@ -563,7 +738,7 @@ function OzonTabContent({ mp, api }: {
           </div>
         )}
 
-        {/* API mode */}
+        {/* Seller API settings */}
         {mode === 'api' && (
           <ApiSettingsBar
             accentColor="bg-blue-600 hover:bg-blue-500"
@@ -578,6 +753,18 @@ function OzonTabContent({ mp, api }: {
             onLoad={api.loadReport}
             onClear={api.rows.length > 0 ? api.clear : undefined}
             hasData={api.rows.length > 0}
+          />
+        )}
+
+        {/* Performance API bar — always shown in API mode, or in any mode when data is loaded */}
+        {(mode === 'api' || hasData) && (
+          <PerfApiBar
+            clientId={perfApi.clientId}       setClientId={perfApi.setClientId}
+            clientSecret={perfApi.clientSecret} setClientSecret={perfApi.setClientSecret}
+            loading={perfApi.loading} error={perfApi.error}
+            hasData={!!perfApi.report}
+            onLoad={() => perfApi.load(perfDateFrom, perfDateTo)}
+            onClear={perfApi.clear}
           />
         )}
 
@@ -598,10 +785,19 @@ function OzonTabContent({ mp, api }: {
               hasCosts={active.hasCosts} costsCount={Object.keys(active.costs).length}
               onExport={mkExport('ozon')} />
 
+            {perfApi.report && (
+              <CampaignsPanel
+                campaigns={perfApi.report.campaigns}
+                spendByArticle={perfApi.report.spendByArticle}
+                onClear={perfApi.clear}
+              />
+            )}
+
             <div className="flex-1 overflow-auto">
               <SkuTable rows={active.calculatedRows} costs={active.costs}
                 editingArticle={editingArticle} setEditing={setEditingArticle}
-                updateCost={active.updateCost} />
+                updateCost={active.updateCost}
+                spendByArticle={perfApi.report?.spendByArticle} />
             </div>
           </>
         ) : (
