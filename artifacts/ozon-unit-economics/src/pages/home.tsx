@@ -1,9 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useReport } from '../hooks/use-report';
 import { parseOzonReport, exportToExcel } from '../lib/excel';
 import { formatCurrency, formatPercent, formatNumber } from '../lib/utils';
 import { TaxSettings, TaxType } from '../types';
-import { Upload, Download, Trash2, FileSpreadsheet, ChevronDown, ChevronUp } from 'lucide-react';
+import { Upload, Download, Trash2, FileSpreadsheet, Pencil } from 'lucide-react';
 
 const TAX_OPTIONS: { label: string; type: TaxType; rate: number }[] = [
   { label: 'УСН 6% (доходы)', type: 'usn_income', rate: 0.06 },
@@ -38,12 +38,83 @@ function formatLabel(format: string) {
   return '';
 }
 
+interface CostEditorProps {
+  article: string;
+  costPerUnit: number;
+  vatRate: number;
+  onChangeCost: (v: number) => void;
+  onChangeVat: (v: number) => void;
+  onClose: () => void;
+}
+
+function CostEditor({ article, costPerUnit, vatRate, onChangeCost, onChangeVat, onClose }: CostEditorProps) {
+  const costRef = useRef<HTMLInputElement>(null);
+  const [localCost, setLocalCost] = useState(costPerUnit > 0 ? String(costPerUnit) : '');
+  const [localVat, setLocalVat] = useState(vatRate > 0 ? String(vatRate) : '');
+
+  const commit = useCallback(() => {
+    onChangeCost(parseFloat(localCost) || 0);
+    onChangeVat(parseFloat(localVat) || 0);
+    onClose();
+  }, [localCost, localVat, onChangeCost, onChangeVat, onClose]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') { onClose(); }
+  };
+
+  return (
+    <div
+      className="flex items-center gap-1 bg-card border border-primary/50 px-2 py-1 shadow-lg z-50 min-w-[220px]"
+      onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) commit(); }}
+    >
+      <span className="text-muted-foreground text-[10px] whitespace-nowrap">{article}</span>
+      <span className="text-border mx-1">|</span>
+      <input
+        ref={costRef}
+        autoFocus
+        type="number"
+        min="0"
+        step="any"
+        value={localCost}
+        placeholder="0"
+        onChange={e => setLocalCost(e.target.value)}
+        onKeyDown={handleKeyDown}
+        className="w-20 bg-transparent border-b border-primary outline-none text-right px-1 tabular-nums text-xs"
+        data-testid={`input-cost-${article}`}
+      />
+      <span className="text-muted-foreground text-[10px]">₽/шт</span>
+      <span className="text-border mx-1">|</span>
+      <span className="text-muted-foreground text-[10px]">НДС</span>
+      <input
+        type="number"
+        min="0"
+        max="20"
+        step="any"
+        value={localVat}
+        placeholder="0"
+        onChange={e => setLocalVat(e.target.value)}
+        onKeyDown={handleKeyDown}
+        className="w-10 bg-transparent border-b border-primary/60 outline-none text-right px-1 tabular-nums text-xs"
+        data-testid={`input-vat-${article}`}
+      />
+      <span className="text-muted-foreground text-[10px]">%</span>
+      <button
+        onMouseDown={e => { e.preventDefault(); commit(); }}
+        className="ml-1 text-[10px] text-primary hover:text-primary/80 font-medium"
+      >
+        ✓
+      </button>
+    </div>
+  );
+}
+
 export default function Home() {
   const report = useReport();
   const fileRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [costOpen, setCostOpen] = useState(false);
+  const [editingArticle, setEditingArticle] = useState<string | null>(null);
 
   const handleFile = async (file: File) => {
     setLoading(true);
@@ -247,67 +318,21 @@ export default function Home() {
 
             {!report.hasCosts && (
               <p className="text-[10px] text-yellow-400/70 border border-yellow-400/20 bg-yellow-400/5 px-2 py-1.5 mt-2">
-                Укажите себестоимость для точного расчёта прибыли
+                Нажмите на ячейку «Себест.» в таблице для ввода
               </p>
             )}
           </aside>
 
           {/* RIGHT: TABLE */}
-          <div className="flex-1 overflow-auto">
-            {/* Cost entry toggle */}
-            <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-card border-b border-border/50 text-[11px]">
-              <button
-                className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => setCostOpen(v => !v)}
-                data-testid="toggle-cost-panel"
-              >
-                {costOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                Себестоимость по артикулам
-              </button>
+          <div className="flex-1 overflow-auto" onClick={() => setEditingArticle(null)}>
+            {/* Table hint */}
+            <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-card border-b border-border/50 text-[11px] text-muted-foreground/60">
+              <Pencil className="w-3 h-3" />
+              Нажмите на ячейку «Себест.» для редактирования · Enter или клик вне поля — сохранить
               {report.hasCosts && (
-                <span className="text-green-400/70">· указана для {Object.keys(report.costs).length} SKU</span>
+                <span className="text-green-400/70 ml-1">· указана для {Object.keys(report.costs).length} SKU</span>
               )}
             </div>
-
-            {/* Cost entry panel */}
-            {costOpen && (
-              <div className="border-b border-border/50 bg-muted/10 p-3">
-                <div className="flex flex-wrap gap-2">
-                  {report.rows.map(row => {
-                    const c = report.costs[row.article] ?? { costPerUnit: 0, vatRate: 0 };
-                    return (
-                      <div key={row.article} className="flex items-center gap-1 border border-border/50 bg-card px-2 py-1 text-[11px] min-w-[280px]">
-                        <span className="text-muted-foreground truncate max-w-[100px]" title={row.name}>{row.article}</span>
-                        <span className="text-muted-foreground mx-1">|</span>
-                        <span className="text-muted-foreground">Себест:</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={c.costPerUnit || ''}
-                          placeholder="0"
-                          onChange={e => report.updateCost(row.article, 'costPerUnit', parseFloat(e.target.value) || 0)}
-                          className="w-20 bg-transparent border-b border-border focus:border-primary outline-none text-right px-1 tabular-nums"
-                          data-testid={`input-cost-${row.article}`}
-                        />
-                        <span className="text-muted-foreground ml-0.5">₽</span>
-                        <span className="text-muted-foreground mx-1">НДС:</span>
-                        <input
-                          type="number"
-                          min="0"
-                          max="20"
-                          value={c.vatRate || ''}
-                          placeholder="0"
-                          onChange={e => report.updateCost(row.article, 'vatRate', parseFloat(e.target.value) || 0)}
-                          className="w-10 bg-transparent border-b border-border focus:border-primary outline-none text-right px-1 tabular-nums"
-                          data-testid={`input-vat-${row.article}`}
-                        />
-                        <span className="text-muted-foreground">%</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
 
             {/* SKU TABLE */}
             <table className="w-full text-xs border-collapse">
@@ -324,42 +349,73 @@ export default function Home() {
                   {isNac && <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Партнёры</th>}
                   {isNac && <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Реклама</th>}
                   {isNac && <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Хранение</th>}
-                  <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Себест.</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">
+                    <span className="flex items-center justify-end gap-1">
+                      Себест. <Pencil className="w-2.5 h-2.5 text-primary/60" />
+                    </span>
+                  </th>
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Налог</th>
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Прибыль</th>
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Маржа</th>
                 </tr>
               </thead>
               <tbody>
-                {report.calculatedRows.map((row, idx) => (
-                  <tr
-                    key={row.article}
-                    className={`border-b border-border/30 hover:bg-muted/20 ${idx % 2 === 0 ? '' : 'bg-muted/5'}`}
-                    data-testid={`row-sku-${row.article}`}
-                  >
-                    <td className="px-3 py-1.5 font-medium text-primary/80 whitespace-nowrap">{row.article}</td>
-                    <td className="px-3 py-1.5 text-muted-foreground max-w-[200px] truncate" title={row.name}>{row.name}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(row.salesCount)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-red-400/70">{row.returnsCount > 0 ? formatNumber(row.returnsCount) : '—'}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.avgPrice > 0 ? formatCurrency(row.avgPrice) : '—'}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums font-medium">{formatCurrency(row.netSales)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-orange-400/80">{row.ozonCommission > 0 ? `-${formatCurrency(row.ozonCommission)}` : '—'}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-blue-400/80">{row.deliveryServices > 0 ? `-${formatCurrency(row.deliveryServices)}` : '—'}</td>
-                    {isNac && <td className="px-3 py-1.5 text-right tabular-nums text-purple-400/80">{row.agentServices > 0 ? `-${formatCurrency(row.agentServices)}` : '—'}</td>}
-                    {isNac && <td className="px-3 py-1.5 text-right tabular-nums text-pink-400/80">{row.promotion > 0 ? `-${formatCurrency(row.promotion)}` : '—'}</td>}
-                    {isNac && <td className="px-3 py-1.5 text-right tabular-nums text-cyan-400/80">{(row.storage + row.fboServices) > 0 ? `-${formatCurrency(row.storage + row.fboServices)}` : '—'}</td>}
-                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
-                      {row.costTotal > 0 ? `-${formatCurrency(row.costTotal)}` : <span className="text-yellow-400/50">укажите</span>}
-                    </td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.taxAmount > 0 ? `-${formatCurrency(row.taxAmount)}` : '—'}</td>
-                    <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${row.netProfit > 0 ? 'text-green-400' : 'text-red-400'}`} data-testid={`text-profit-${row.article}`}>
-                      {formatCurrency(row.netProfit)}
-                    </td>
-                    <td className={`px-3 py-1.5 text-right tabular-nums ${row.marginPercent > 20 ? 'text-green-400' : row.marginPercent > 10 ? 'text-yellow-400' : 'text-red-400'}`} data-testid={`text-margin-${row.article}`}>
-                      {formatPercent(row.marginPercent)}
-                    </td>
-                  </tr>
-                ))}
+                {report.calculatedRows.map((row, idx) => {
+                  const isEditing = editingArticle === row.article;
+                  const c = report.costs[row.article] ?? { costPerUnit: 0, vatRate: 0 };
+                  return (
+                    <tr
+                      key={row.article}
+                      className={`border-b border-border/30 hover:bg-muted/20 ${idx % 2 === 0 ? '' : 'bg-muted/5'}`}
+                      data-testid={`row-sku-${row.article}`}
+                    >
+                      <td className="px-3 py-1.5 font-medium text-primary/80 whitespace-nowrap">{row.article}</td>
+                      <td className="px-3 py-1.5 text-muted-foreground max-w-[200px] truncate" title={row.name}>{row.name}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(row.salesCount)}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-red-400/70">{row.returnsCount > 0 ? formatNumber(row.returnsCount) : '—'}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.avgPrice > 0 ? formatCurrency(row.avgPrice) : '—'}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums font-medium">{formatCurrency(row.netSales)}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-orange-400/80">{row.ozonCommission > 0 ? `-${formatCurrency(row.ozonCommission)}` : '—'}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-blue-400/80">{row.deliveryServices > 0 ? `-${formatCurrency(row.deliveryServices)}` : '—'}</td>
+                      {isNac && <td className="px-3 py-1.5 text-right tabular-nums text-purple-400/80">{row.agentServices > 0 ? `-${formatCurrency(row.agentServices)}` : '—'}</td>}
+                      {isNac && <td className="px-3 py-1.5 text-right tabular-nums text-pink-400/80">{row.promotion > 0 ? `-${formatCurrency(row.promotion)}` : '—'}</td>}
+                      {isNac && <td className="px-3 py-1.5 text-right tabular-nums text-cyan-400/80">{(row.storage + row.fboServices) > 0 ? `-${formatCurrency(row.storage + row.fboServices)}` : '—'}</td>}
+
+                      {/* COST CELL — click to edit inline */}
+                      <td
+                        className="px-1 py-0.5 text-right"
+                        onClick={e => { e.stopPropagation(); setEditingArticle(row.article); }}
+                      >
+                        {isEditing ? (
+                          <CostEditor
+                            article={row.article}
+                            costPerUnit={c.costPerUnit}
+                            vatRate={c.vatRate}
+                            onChangeCost={v => report.updateCost(row.article, 'costPerUnit', v)}
+                            onChangeVat={v => report.updateCost(row.article, 'vatRate', v)}
+                            onClose={() => setEditingArticle(null)}
+                          />
+                        ) : (
+                          <span
+                            className={`group relative flex items-center justify-end gap-1 cursor-pointer rounded px-2 py-1 hover:bg-primary/10 hover:text-primary transition-colors tabular-nums ${row.costTotal > 0 ? 'text-muted-foreground' : 'text-yellow-400/50'}`}
+                            title="Нажмите для редактирования себестоимости"
+                          >
+                            {row.costTotal > 0 ? `-${formatCurrency(row.costTotal)}` : '—'}
+                            <Pencil className="w-2.5 h-2.5 opacity-0 group-hover:opacity-60 flex-shrink-0" />
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.taxAmount > 0 ? `-${formatCurrency(row.taxAmount)}` : '—'}</td>
+                      <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${row.netProfit > 0 ? 'text-green-400' : 'text-red-400'}`} data-testid={`text-profit-${row.article}`}>
+                        {formatCurrency(row.netProfit)}
+                      </td>
+                      <td className={`px-3 py-1.5 text-right tabular-nums ${row.marginPercent > 20 ? 'text-green-400' : row.marginPercent > 10 ? 'text-yellow-400' : 'text-red-400'}`} data-testid={`text-margin-${row.article}`}>
+                        {formatPercent(row.marginPercent)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
