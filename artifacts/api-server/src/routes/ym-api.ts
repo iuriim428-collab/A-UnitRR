@@ -16,11 +16,15 @@ async function curlPost(
   authToken: string,
   body: unknown,
 ): Promise<unknown> {
+  // Yandex Market accepts OAuth tokens (y0_Ag... / Ag...) with "OAuth" prefix,
+  // and IAM/service-account tokens (ACMA:...) with "Bearer" prefix.
+  const authScheme = authToken.startsWith("ACMA:") ? "Bearer" : "OAuth";
+
   const { stdout } = await execFileAsync("curl", [
     "-s",
     "--max-time", "30",
     "-X", "POST",
-    "-H", `Authorization: OAuth ${authToken}`,
+    "-H", `Authorization: ${authScheme} ${authToken}`,
     "-H", "Content-Type: application/json",
     "-d", JSON.stringify(body),
     "--write-out", "\n%{http_code}",
