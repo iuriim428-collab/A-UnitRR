@@ -36,22 +36,33 @@ router.get("/wb/report", async (req, res) => {
         `?dateFrom=${dateFrom}&dateTo=${dateTo}&limit=100000&rrdid=${rrdid}`;
 
       const upstream = await fetch(url, {
-        headers: { Authorization: token },
+        headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(30_000),
       });
 
       if (!upstream.ok) {
-        req.log.warn({ status: upstream.status }, "wb api error");
+        const body = await upstream.text().catch(() => "");
+        req.log.warn({ status: upstream.status, body }, "wb api error");
         if (upstream.status === 429) {
+          // WB returns 429 with origin "s2s-api-auth-stat" when using old token format.
+          // New tokens must be generated at dev.wildberries.ru (see news #281).
+          const isAuthBlock = body.includes("s2s-api-auth-stat") || body.includes("dev.wildberries.ru");
+          if (isAuthBlock) {
+            res.status(429).json({
+              error: "WB изменили аутентификацию Statistics API (новость #281). " +
+                "Старые токены из кабинета продавца не работают. " +
+                "Создайте новый токен на портале разработчика: dev.wildberries.ru → API-ключи → Статистика.",
+            });
+            return;
+          }
           res.status(429).json({ error: "Превышен лимит запросов WB API. Подождите 1 минуту и повторите." });
           return;
         }
         if (upstream.status === 401 || upstream.status === 403) {
-          res.status(upstream.status).json({ error: "Неверный или просроченный API-токен WB. Проверьте токен в настройках продавца." });
+          res.status(upstream.status).json({ error: `Неверный или просроченный API-токен WB (${upstream.status}). Проверьте токен в настройках продавца. Ответ WB: ${body || "(пустой)"}` });
           return;
         }
-        const text = await upstream.text().catch(() => `HTTP ${upstream.status}`);
-        res.status(upstream.status).json({ error: `Ошибка WB API (${upstream.status}): ${text}` });
+        res.status(upstream.status).json({ error: `Ошибка WB API (${upstream.status}): ${body || upstream.statusText}` });
         return;
       }
 
