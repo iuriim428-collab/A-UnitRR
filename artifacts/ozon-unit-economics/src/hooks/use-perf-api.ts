@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 
-const LS = (k: string) => `perf_api_${k}`;
+const LS     = (k: string) => `perf_api_${k}`;
+const LS_SEL = (k: string) => `ozon_api_${k}`;
 
 export interface PerfCampaign {
   id: string;
@@ -41,13 +42,21 @@ export function usePerfApi() {
     if (!clientSecret.trim()) { setError('Введите Client-Secret (Performance API)'); return; }
     setLoading(true); setError(null);
     try {
+      // Read Seller API credentials to allow server to resolve product IDs → articles
+      const sellerClientId = localStorage.getItem(LS_SEL('client_id')) ?? '';
+      const sellerApiKey   = localStorage.getItem(LS_SEL('api_key'))   ?? '';
+
+      const headers: Record<string, string> = {
+        'Content-Type':         'application/json',
+        'X-Perf-Client-Id':     clientId.trim(),
+        'X-Perf-Client-Secret': clientSecret.trim(),
+      };
+      if (sellerClientId) headers['X-Ozon-Client-Id'] = sellerClientId;
+      if (sellerApiKey)   headers['X-Ozon-Api-Key']   = sellerApiKey;
+
       const resp = await fetch('/api/ozon/performance-report', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Perf-Client-Id':     clientId.trim(),
-          'X-Perf-Client-Secret': clientSecret.trim(),
-        },
+        headers,
         body: JSON.stringify({ dateFrom, dateTo }),
       });
       const data = await resp.json() as PerfReport & { error?: string };

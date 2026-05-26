@@ -280,6 +280,9 @@ interface PerfObjectRaw {
 router.post("/ozon/performance-report", async (req, res) => {
   const perfClientId     = req.headers["x-perf-client-id"];
   const perfClientSecret = req.headers["x-perf-client-secret"];
+  // Optional: Seller API credentials for resolving product IDs → offer_ids (articles)
+  const sellerClientId   = req.headers["x-ozon-client-id"];
+  const sellerApiKey     = req.headers["x-ozon-api-key"];
 
   if (!perfClientId || !perfClientSecret) {
     res.status(401).json({ error: "Нужны заголовки X-Perf-Client-Id и X-Perf-Client-Secret" });
@@ -292,7 +295,7 @@ router.post("/ozon/performance-report", async (req, res) => {
     return;
   }
 
-  req.log.info({ dateFrom, dateTo }, "perf report fetch");
+  req.log.info({ dateFrom, dateTo, hasSellerCreds: !!(sellerClientId && sellerApiKey) }, "perf report fetch");
 
   try {
     // 1. OAuth token
@@ -327,19 +330,84 @@ router.post("/ozon/performance-report", async (req, res) => {
       return;
     }
 
-    // 3. Statistics for all campaigns (synchronous JSON endpoint)
-    const campIds = campaigns.map(c => c.id);
+    // 3. Statistics — campaign IDs must be integers (API requirement)
+    const campIdsInt = campaigns.map(c => Number(c.id));
     const statsResp = await fetch(`${PERF_BASE}/api/client/statistics/json`, {
       method: "POST",
       headers: { Authorization: auth, "Content-Type": "application/json" },
-      body: JSON.stringify({ campaigns: campIds, dateFrom, dateTo, groupBy: "NO_GROUP_BY" }),
+      body: JSON.stringify({ campaigns: campIdsInt, dateFrom, dateTo, groupBy: "NO_GROUP_BY" }),
       signal: AbortSignal.timeout(30_000),
     });
-    const statsData = await statsResp.json() as { statistics?: PerfStatRaw[] };
-    const statsMap = new Map<string, PerfStatRaw>();
-    for (const s of statsData.statistics ?? []) statsMap.set(s.id, s);
+    const statsRaw = await statsResp.json() as Record<string, unknown>;
+    req.log.info({ statsStatus: statsResp.status, statsKeys: Object.keys(statsRaw) }, "perf stats raw");
 
-    // 4. Per-campaign: get objects (products) and distribute spend by article
+    const statsData = statsRaw as { statistics?: PerfStatRaw[] };
+    const statsMap = new Map<string, PerfStatRaw>();
+    for (const s of statsData.statistics ?? []) statsMap.set(String(s.id), s);
+
+    // 4. Fetch objects for all campaigns (product IDs in each campaign)
+    //    Collect all product IDs for batch Seller API resolution
+    const campProducts = new Map<string, string[]>(); // campId → productId[]
+    const allProductIds = new Set<string>();
+
+    for (const camp of campaigns) {
+      try {
+        const objResp = await fetch(`${PERF_BASE}/api/client/campaign/${camp.id}/objects`, {
+          headers: { Authorization: auth },
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (objResp.ok) {
+          const objRaw = await objResp.json() as { list?: Array<Record<string, unknown>> };
+          const list = objRaw.list ?? [];
+          const ids = list
+            .map(p => String(p.id ?? p.offerId ?? p.offer_id ?? p.article ?? ""))
+            .filter(Boolean);
+          campProducts.set(camp.id, ids);
+          for (const id of ids) allProductIds.add(id);
+        }
+      } catch { /* skip */ }
+    }
+
+    req.log.info({ totalProductIds: allProductIds.size }, "perf objects fetched");
+
+    // 5. Resolve product IDs → offer_id (article) via Seller API if credentials provided
+    const productIdToArticle = new Map<string, string>();
+    if (sellerClientId && sellerApiKey && allProductIds.size > 0) {
+      const ids = Array.from(allProductIds).map(Number).filter(n => !isNaN(n));
+      // Batch in chunks of 100
+      for (let i = 0; i < ids.length; i += 100) {
+        const batch = ids.slice(i, i + 100);
+        try {
+          const infoResp = await fetch(`${OZON_BASE}/v2/product/info/list`, {
+            method: "POST",
+            headers: {
+              "Client-Id": String(sellerClientId),
+              "Api-Key": String(sellerApiKey),
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ product_id: batch }),
+            signal: AbortSignal.timeout(15_000),
+          });
+          if (infoResp.ok) {
+            const infoData = await infoResp.json() as {
+              result?: { items?: Array<{ id?: number; offer_id?: string }> };
+            };
+            for (const item of infoData.result?.items ?? []) {
+              if (item.id != null && item.offer_id) {
+                productIdToArticle.set(String(item.id), item.offer_id);
+              }
+            }
+          } else {
+            req.log.warn({ status: infoResp.status }, "seller product info failed");
+          }
+        } catch (e) {
+          req.log.warn({ err: e }, "seller product info error");
+        }
+      }
+      req.log.info({ resolved: productIdToArticle.size, of: allProductIds.size }, "perf product resolve done");
+    }
+
+    // 6. Build results and spendByArticle
     const spendByArticle: Record<string, number> = {};
     const results: Array<{
       id: string; title: string; state: string; type: string;
@@ -356,22 +424,12 @@ router.post("/ozon/performance-report", async (req, res) => {
       const orders     = s?.orders ?? 0;
       const drr        = revenue > 0 ? (moneySpent / revenue) * 100 : 0;
 
-      let products: PerfObjectRaw[] = [];
-      try {
-        const objResp = await fetch(`${PERF_BASE}/api/client/campaign/${camp.id}/objects`, {
-          headers: { Authorization: auth, "Content-Type": "application/json" },
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (objResp.ok) {
-          const objData = await objResp.json() as { list?: PerfObjectRaw[] };
-          products = objData.list ?? [];
-        }
-      } catch { /* skip failed objects fetch */ }
+      const productIds = campProducts.get(camp.id) ?? [];
 
-      if (moneySpent > 0 && products.length > 0) {
-        const perProduct = moneySpent / products.length;
-        for (const p of products) {
-          const article = p.article ?? "";
+      if (moneySpent > 0 && productIds.length > 0) {
+        const perProduct = moneySpent / productIds.length;
+        for (const pid of productIds) {
+          const article = productIdToArticle.get(pid) ?? "";
           if (article) spendByArticle[article] = (spendByArticle[article] ?? 0) + perProduct;
         }
       }
@@ -379,7 +437,7 @@ router.post("/ozon/performance-report", async (req, res) => {
       results.push({
         id: camp.id, title: camp.title, state: camp.state, type: camp.advObjectType,
         budget: camp.budget ?? 0, moneySpent, views, clicks, orders, revenue, drr,
-        productsCount: products.length,
+        productsCount: productIds.length,
       });
     }
 
