@@ -66,7 +66,13 @@ router.post("/ym/report", async (req, res) => {
     return;
   }
 
-  req.log.info({ campaignId, dateFrom, dateTo }, "ym api report fetch");
+  // Sanitize token: strip whitespace/newlines that break HTTP header syntax
+  const cleanToken = token.trim().replace(/\s+/g, '');
+
+  req.log.info(
+    { campaignId, dateFrom, dateTo, tokenLen: cleanToken.length, tokenPrefix: cleanToken.slice(0, 8) },
+    "ym api report fetch",
+  );
 
   // Convert YYYY-MM-DD to DD-MM-YYYY which YM API expects
   const fmtDate = (iso: string) => {
@@ -98,7 +104,7 @@ router.post("/ym/report", async (req, res) => {
       };
       if (pageToken) bodyPayload["pageToken"] = pageToken;
 
-      const data = (await curlPost(url, token, bodyPayload)) as {
+      const data = (await curlPost(url, cleanToken, bodyPayload)) as {
         status: string;
         result: {
           orders: unknown[];
