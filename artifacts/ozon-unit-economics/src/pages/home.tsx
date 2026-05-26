@@ -8,12 +8,10 @@ import { exportToExcel } from '../lib/excel';
 import { isLocalProxyAvailable } from '../lib/wb-api';
 import { formatCurrency, formatPercent, formatNumber } from '../lib/utils';
 import { TaxSettings, TaxType, CalculatedRow, ReportSummary } from '../types';
-import { AnalyticsPanel } from '../components/analytics-charts';
-import { CompetitorPanel } from '../components/competitor-panel';
 import {
   Upload, Download, Trash2, FolderOpen, FileSpreadsheet,
   Pencil, CheckCircle, AlertCircle, RefreshCw, Key, Calendar,
-  Eye, EyeOff, Folder, Globe, BarChart2, Table2, Swords,
+  Eye, EyeOff, Folder, Globe,
 } from 'lucide-react';
 
 // ─── ABC analysis ──────────────────────────────────────────────────────────────
@@ -283,58 +281,25 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost }: {
 }
 
 // ─── Filter + export bar ──────────────────────────────────────────────────────
-type ViewMode = 'table' | 'charts' | 'competitors';
-
-function ActionBar({ filter, setFilter, hasCosts, costsCount, onExport, viewMode, setViewMode }: {
+function ActionBar({ filter, setFilter, hasCosts, costsCount, onExport }: {
   filter: FilterType; setFilter: (f: FilterType) => void;
   hasCosts: boolean; costsCount: number; onExport: () => void;
-  viewMode?: ViewMode; setViewMode?: (v: ViewMode) => void;
 }) {
   return (
     <div className="flex-none flex items-center gap-2 px-3 py-1 border-b border-border/30 bg-card text-[11px]">
-      {viewMode === 'table' && (
-        <>
-          <Pencil className="w-3 h-3 text-muted-foreground/40" />
-          <span className="text-muted-foreground/50">Нажмите «Себест.» для редактирования</span>
-          {hasCosts && <span className="text-green-400/60">· указана для {costsCount} SKU</span>}
-        </>
-      )}
+      <Pencil className="w-3 h-3 text-muted-foreground/40" />
+      <span className="text-muted-foreground/50">Нажмите «Себест.» для редактирования</span>
+      {hasCosts && <span className="text-green-400/60">· указана для {costsCount} SKU</span>}
       <div className="flex-1" />
 
-      {/* View toggle */}
-      {setViewMode && (
-        <div className="flex border border-border mr-1">
-          <button
-            onClick={e => { e.stopPropagation(); setViewMode('table'); }}
-            title="Таблица"
-            className={`flex items-center gap-1.5 px-2.5 py-1 transition-colors ${viewMode === 'table' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>
-            <Table2 className="w-3 h-3" /> Таблица
+      <div className="flex border border-border">
+        {(['all', 'profitable', 'unprofitable'] as FilterType[]).map((f, i) => (
+          <button key={f} onClick={e => { e.stopPropagation(); setFilter(f); }}
+            className={`px-3 py-1 ${filter === f ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'} ${i > 0 ? 'border-l border-border' : ''}`}>
+            {f === 'all' ? 'Все' : f === 'profitable' ? 'Прибыльные' : 'Убыточные'}
           </button>
-          <button
-            onClick={e => { e.stopPropagation(); setViewMode('charts'); }}
-            title="Графики"
-            className={`flex items-center gap-1.5 px-2.5 py-1 border-l border-border transition-colors ${viewMode === 'charts' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>
-            <BarChart2 className="w-3 h-3" /> Графики
-          </button>
-          <button
-            onClick={e => { e.stopPropagation(); setViewMode('competitors'); }}
-            title="Конкуренты"
-            className={`flex items-center gap-1.5 px-2.5 py-1 border-l border-border transition-colors ${viewMode === 'competitors' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>
-            <Swords className="w-3 h-3" /> Конкуренты
-          </button>
-        </div>
-      )}
-
-      {viewMode !== 'charts' && viewMode !== 'competitors' && (
-        <div className="flex border border-border">
-          {(['all', 'profitable', 'unprofitable'] as FilterType[]).map((f, i) => (
-            <button key={f} onClick={e => { e.stopPropagation(); setFilter(f); }}
-              className={`px-3 py-1 ${filter === f ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'} ${i > 0 ? 'border-l border-border' : ''}`}>
-              {f === 'all' ? 'Все' : f === 'profitable' ? 'Прибыльные' : 'Убыточные'}
-            </button>
-          ))}
-        </div>
-      )}
+        ))}
+      </div>
 
       <button onClick={e => { e.stopPropagation(); onExport(); }}
         className="flex items-center gap-1.5 px-3 py-1 bg-primary text-primary-foreground hover:opacity-90">
@@ -560,9 +525,6 @@ function OzonTabContent({ mp, api }: {
     setMode(m); localStorage.setItem('ozon_tab_mode', m);
   };
 
-  const [viewMode, setViewModeState] = useState<ViewMode>('table');
-  const setViewMode = (v: ViewMode) => setViewModeState(v);
-
   const [editingArticle, setEditingArticle] = useState<string | null>(null);
   const [adSpend, setAdSpendState] = useState<number>(() => parseFloat(localStorage.getItem('ozon_ad_spend') ?? '0') || 0);
   const setAdSpend = (v: number) => { setAdSpendState(v); localStorage.setItem('ozon_ad_spend', String(v)); };
@@ -634,24 +596,13 @@ function OzonTabContent({ mp, api }: {
 
             <ActionBar filter={active.filter} setFilter={active.setFilter}
               hasCosts={active.hasCosts} costsCount={Object.keys(active.costs).length}
-              onExport={mkExport('ozon')}
-              viewMode={viewMode} setViewMode={setViewMode} />
+              onExport={mkExport('ozon')} />
 
-            {viewMode === 'charts' ? (
-              <AnalyticsPanel summary={active.summary} rows={active.calculatedRows} />
-            ) : viewMode === 'competitors' ? (
-              <CompetitorPanel
-                rows={active.calculatedRows}
-                clientId={api.clientId}
-                apiKey={api.apiKey}
-              />
-            ) : (
-              <div className="flex-1 overflow-auto">
-                <SkuTable rows={active.calculatedRows} costs={active.costs}
-                  editingArticle={editingArticle} setEditing={setEditingArticle}
-                  updateCost={active.updateCost} />
-              </div>
-            )}
+            <div className="flex-1 overflow-auto">
+              <SkuTable rows={active.calculatedRows} costs={active.costs}
+                editingArticle={editingArticle} setEditing={setEditingArticle}
+                updateCost={active.updateCost} />
+            </div>
           </>
         ) : (
           mode === 'files'
