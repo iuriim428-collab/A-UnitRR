@@ -36,7 +36,7 @@ router.get("/wb/report", async (req, res) => {
         `?dateFrom=${dateFrom}&dateTo=${dateTo}&limit=100000&rrdid=${rrdid}`;
 
       const upstream = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: token },
         signal: AbortSignal.timeout(30_000),
       });
 
