@@ -1,29 +1,39 @@
 /**
  * Ozon Seller API client + parser.
  * Fetches transactions via /api/ozon/report proxy and converts to OzonReportRow[].
+ *
+ * Real Ozon v3 API structure (confirmed from live responses):
+ *  - items[]: only { name, sku } — NO offer_id, count, or price per item!
+ *  - accruals_for_sale: total gross revenue for the whole operation (>0 sale, <0 return, 0 service)
+ *  - sale_commission: total commission (<0 charged, 0 for service ops)
+ *  - services[]: individual fee breakdown with signed prices
+ *
+ * Strategy: use sku as article key; distribute amounts equally across items in
+ * the same operation (no per-item prices available in v3).
  */
 import { OzonReportRow } from '../types';
 
-// ─── Raw Ozon operation shape ─────────────────────────────────────────────────
+// ─── Raw Ozon operation shape (v3) ────────────────────────────────────────────
 export interface OzonOperation {
-  operation_id: number;
-  operation_type: string;
-  operation_type_name: string;
-  operation_date: string;
-  amount: number;
-  accruals_for_sale: number;   // gross revenue (positive=sale, negative=return)
-  sale_commission: number;     // WB-style commission (negative=charged to seller)
-  posting: { posting_number?: string; delivery_schema?: string } | null;
-  items: Array<{
-    name: string;
-    sku: number;
-    offer_id: string;    // seller article
-    count: number;
-    price: number;
+  operation_id?: number;
+  operation_type?: string;
+  operation_type_name?: string;
+  operation_date?: string;
+  amount?: number;              // net (after all deductions)
+  accruals_for_sale?: number;   // gross sale revenue (>0 sale, <0 return, 0 service)
+  sale_commission?: number;     // commission (<0 cost to seller, 0 service ops)
+  delivery_charge?: number;
+  return_delivery_charge?: number;
+  type?: string;
+  posting?: { delivery_schema?: string; posting_number?: string; order_date?: string; warehouse_id?: number } | null;
+  items?: Array<{
+    name?: string;
+    sku?: number;
+    // offer_id, count, price are NOT returned in v3 transactions API
   }>;
-  services: Array<{
-    name: string;
-    price: number;      // negative = cost to seller
+  services?: Array<{
+    name?: string;
+    price?: number;   // <0 cost to seller, >0 income
   }>;
 }
 
@@ -62,28 +72,39 @@ type ServiceField = keyof Pick<
 
 function classifyService(name: string): ServiceField {
   const n = name.toLowerCase();
-
-  if (n.includes('commission') || n.includes('комиссия'))    return 'ozonCommission';
+  if (n.includes('commission') || n.includes('itemcommission'))           return 'ozonCommission';
   if (n.includes('marketing') || n.includes('promo') ||
-      n.includes('boost') || n.includes('advert') ||
-      n.includes('review'))                                   return 'promotion';
-  if (n.includes('acquiring') || n.includes('installment'))  return 'acquiring';
-  if (n.includes('storage') && n.includes('fbo'))            return 'storage';
-  if (n.includes('storage') || n.includes('хранение'))       return 'storage';
-  if (n.includes('acceptance') || n.includes('dropoff') ||
-      n.includes('accept'))                                   return 'processing';
-  if (n.includes('return') &&
-     (n.includes('trans') || n.includes('logist') ||
-      n.includes('cargo') || n.includes('delivery')))        return 'returnLogistics';
+      n.includes('boost')     || n.includes('advert') ||
+      n.includes('review'))                                               return 'promotion';
+  if (n.includes('acquiring') || n.includes('installment') ||
+      n.includes('credit'))                                               return 'acquiring';
+  if (n.includes('storage') || n.includes('хранение'))                   return 'storage';
+  if (n.includes('accept') || n.includes('dropoff') ||
+      n.includes('handover'))                                             return 'processing';
+  if ((n.includes('return') || n.includes('возврат')) &&
+      (n.includes('logistic') || n.includes('cargo') ||
+       n.includes('delivery') || n.includes('trans')))                   return 'returnLogistics';
   if (n.includes('lastmile') || n.includes('last_mile') ||
-      n.includes('pvz') || n.includes('postamat'))           return 'lastMile';
-  if (n.includes('trans') || n.includes('logist') ||
-      n.includes('cargo') || n.includes('delivery') ||
-      n.includes('доставка'))                                 return 'logistics';
+      n.includes('pvz')       || n.includes('postamat'))                 return 'lastMile';
+  if (n.includes('logistic') || n.includes('cargo') ||
+      n.includes('delivery')  || n.includes('trans'))                    return 'logistics';
   if (n.includes('fbo') || n.includes('fbs') ||
-      n.includes('wms') || n.includes('fulfil'))             return 'fboServices';
-
+      n.includes('wms')  || n.includes('fulfil'))                        return 'fboServices';
   return 'otherExpenses';
+}
+
+function blankRow(article: string, name: string): OzonReportRow {
+  return {
+    article, name,
+    ordersCount: 0, ordersSum: 0,
+    returnsCount: 0, returnsSum: 0,
+    salesCount: 0, netSales: 0,
+    ozonCommission: 0,
+    deliveryServices: 0, logistics: 0, returnLogistics: 0,
+    lastMile: 0, processing: 0, otherDelivery: 0,
+    agentServices: 0, acquiring: 0, returnProcessing: 0,
+    promotion: 0, storage: 0, fboServices: 0, otherExpenses: 0,
+  };
 }
 
 // ─── Parser ───────────────────────────────────────────────────────────────────
@@ -91,72 +112,76 @@ export function parseOzonOperations(ops: OzonOperation[]): OzonReportRow[] {
   const acc: Record<string, OzonReportRow> = {};
 
   for (const op of ops) {
-    if (!op.items || op.items.length === 0) continue;
+    const items    = op.items ?? [];
+    const services = op.services ?? [];
+    if (items.length === 0) continue;
 
-    const isSale   = op.accruals_for_sale > 0;
-    const isReturn = op.accruals_for_sale < 0;
+    const accrual    = op.accruals_for_sale ?? 0;  // gross revenue (signed)
+    const commission = op.sale_commission   ?? 0;  // commission (negative = cost)
 
-    // Total revenue for this operation (for proration of fees across items)
-    const totalRevenue = op.items.reduce((s, i) => s + Math.abs(i.price * i.count), 0);
+    // Classify operation from accruals_for_sale — the clearest signal in v3:
+    //   > 0 → sale, < 0 → return, = 0 → service charge
+    const isSale   = accrual > 0;
+    const isReturn = accrual < 0;
 
-    for (const item of op.items) {
-      const article = (item.offer_id || String(item.sku) || 'unknown').trim();
+    // Equal split across all items in this operation (no per-item prices in v3)
+    const n = items.length;
 
-      if (!acc[article]) {
-        acc[article] = {
-          article,
-          name: item.name || '',
-          ordersCount: 0, ordersSum: 0,
-          returnsCount: 0, returnsSum: 0,
-          salesCount: 0, netSales: 0,
-          ozonCommission: 0,
-          deliveryServices: 0, logistics: 0, returnLogistics: 0,
-          lastMile: 0, processing: 0, otherDelivery: 0,
-          agentServices: 0, acquiring: 0, returnProcessing: 0,
-          promotion: 0, storage: 0, fboServices: 0, otherExpenses: 0,
-        };
-      }
-      if (!acc[article].name && item.name) acc[article].name = item.name;
-
+    for (const item of items) {
+      const article = String(item.sku ?? 'unknown');
+      if (!acc[article]) acc[article] = blankRow(article, item.name ?? '');
       const r = acc[article];
-      const itemRevShare = totalRevenue > 0 ? (Math.abs(item.price * item.count) / totalRevenue) : (1 / op.items.length);
+      if (!r.name && item.name) r.name = item.name;
 
       if (isSale) {
-        r.salesCount  += item.count;
-        r.ordersCount += item.count;
-        r.ordersSum   += item.price * item.count;
+        r.ordersCount    += 1;               // count as 1 posting per SKU
+        r.salesCount     += 1;
+        r.ordersSum      += accrual / n;
+        r.ozonCommission += Math.abs(commission) / n;
+      } else if (isReturn) {
+        r.returnsCount   += 1;
+        r.returnsSum     += Math.abs(accrual) / n;
+        // Commission is refunded on returns (sale_commission may be 0 or positive here)
+        r.ozonCommission -= Math.abs(commission) / n;
       }
-      if (isReturn) {
-        r.returnsCount += item.count;
-        r.returnsSum   += Math.abs(item.price * item.count);
-      }
+      // Service operations (accrual = 0): only services[] matter below
 
-      // Commission: use sale_commission field (negative = deducted from seller, sum = net cost)
-      r.ozonCommission += Math.abs(op.sale_commission) * itemRevShare;
+      // Attribute service costs (only negative prices = charged to seller)
+      for (const svc of services) {
+        const p = svc.price ?? 0;
+        if (p >= 0) continue;                  // positive = seller income, skip
+        const cost  = Math.abs(p) / n;
+        const field = classifyService(svc.name ?? '');
 
-      // Services: prorate by item revenue share
-      for (const svc of op.services) {
-        if (svc.price === 0) continue;
-        const cost = Math.abs(svc.price) * itemRevShare;
-        const field = classifyService(svc.name);
-
-        if (field === 'logistics' || field === 'returnLogistics' || field === 'lastMile' || field === 'processing') {
+        if (field === 'ozonCommission') {
+          r.ozonCommission += cost;
+        } else if (field === 'logistics' || field === 'returnLogistics' ||
+                   field === 'lastMile'  || field === 'processing') {
           r.deliveryServices += cost;
           r[field]           += cost;
         } else if (field === 'acquiring') {
           r.agentServices += cost;
           r.acquiring     += cost;
         } else {
+          // storage, fboServices, promotion, otherExpenses
           r[field] += cost;
         }
       }
     }
   }
 
-  // Compute netSales
+  // Finalize
   for (const r of Object.values(acc)) {
     r.netSales = r.ordersSum - r.returnsSum;
+    if (r.ozonCommission < 0) r.ozonCommission = 0;  // edge-case: refunded more than charged
   }
 
-  return Object.values(acc).filter(r => r.ordersCount > 0 || r.returnsCount > 0);
+  // Include any row with meaningful data (sales, returns, OR any expense)
+  return Object.values(acc).filter(r =>
+    r.ordersCount  > 0 || r.returnsCount   > 0 ||
+    r.ozonCommission > 0 || r.deliveryServices > 0 ||
+    r.storage      > 0 || r.agentServices   > 0 ||
+    r.promotion    > 0 || r.fboServices     > 0 ||
+    r.otherExpenses > 0
+  );
 }
