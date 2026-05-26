@@ -41,9 +41,17 @@ router.get("/wb/report", async (req, res) => {
       });
 
       if (!upstream.ok) {
-        const text = await upstream.text().catch(() => String(upstream.status));
         req.log.warn({ status: upstream.status }, "wb api error");
-        res.status(upstream.status).json({ error: text });
+        if (upstream.status === 429) {
+          res.status(429).json({ error: "Превышен лимит запросов WB API. Подождите 1 минуту и повторите." });
+          return;
+        }
+        if (upstream.status === 401 || upstream.status === 403) {
+          res.status(upstream.status).json({ error: "Неверный или просроченный API-токен WB. Проверьте токен в настройках продавца." });
+          return;
+        }
+        const text = await upstream.text().catch(() => `HTTP ${upstream.status}`);
+        res.status(upstream.status).json({ error: `Ошибка WB API (${upstream.status}): ${text}` });
         return;
       }
 
