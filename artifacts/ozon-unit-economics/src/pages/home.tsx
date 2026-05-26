@@ -198,7 +198,7 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost }: {
           <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">
             <span className="flex items-center justify-end gap-1">Себест. <Pencil className="w-2.5 h-2.5 text-primary/60" /></span>
           </th>
-          {['Налог','Прибыль','Маржа'].map(h => (
+          {['Налог','Прибыль','Маржа','Приб./шт'].map(h => (
             <th key={h} className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
           ))}
         </tr>
@@ -235,6 +235,9 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost }: {
               <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.taxAmount > 0 ? `-${formatCurrency(row.taxAmount)}` : '—'}</td>
               <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${row.netProfit > 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(row.netProfit)}</td>
               <td className={`px-3 py-1.5 text-right tabular-nums ${row.marginPercent > 20 ? 'text-green-400' : row.marginPercent > 10 ? 'text-yellow-400' : 'text-red-400'}`}>{formatPercent(row.marginPercent)}</td>
+              <td className={`px-3 py-1.5 text-right tabular-nums ${row.netProfit >= 0 ? 'text-green-400/80' : 'text-red-400/80'}`}>
+                {row.salesCount > 0 ? formatCurrency(row.netProfit / row.salesCount) : '—'}
+              </td>
             </tr>
           );
         })}
