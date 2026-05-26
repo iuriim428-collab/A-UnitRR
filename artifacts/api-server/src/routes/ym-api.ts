@@ -1,7 +1,45 @@
 import { Router, type IRouter } from "express";
+import { execFile } from "child_process";
+import { promisify } from "util";
 
 const router: IRouter = Router();
+const execFileAsync = promisify(execFile);
 const YM_BASE = "https://api.partner.market.yandex.ru";
+
+/**
+ * Runs a curl POST request and returns parsed JSON.
+ * We use curl instead of Node's fetch because Yandex blocks Node.js/undici
+ * TLS fingerprints from GCP IPs, while curl's TLS stack is accepted.
+ */
+async function curlPost(
+  url: string,
+  authToken: string,
+  body: unknown,
+): Promise<unknown> {
+  const { stdout } = await execFileAsync("curl", [
+    "-s",
+    "--max-time", "30",
+    "-X", "POST",
+    "-H", `Authorization: OAuth ${authToken}`,
+    "-H", "Content-Type: application/json",
+    "-d", JSON.stringify(body),
+    "--write-out", "\n%{http_code}",
+    url,
+  ]);
+
+  const lines = stdout.trim().split("\n");
+  const statusCode = parseInt(lines[lines.length - 1], 10);
+  const responseBody = lines.slice(0, -1).join("\n");
+
+  if (statusCode >= 400) {
+    throw Object.assign(new Error(`YM API ${statusCode}: ${responseBody}`), {
+      statusCode,
+      responseBody,
+    });
+  }
+
+  return JSON.parse(responseBody);
+}
 
 /**
  * POST /api/ym/report
@@ -9,7 +47,6 @@ const YM_BASE = "https://api.partner.market.yandex.ru";
  * Body: { campaignId: string, dateFrom: "YYYY-MM-DD", dateTo: "YYYY-MM-DD" }
  *
  * Fetches order statistics from Yandex Market Partner API with pagination.
- * Returns both delivered orders (sales) and returned/cancelled orders.
  */
 router.post("/ym/report", async (req, res) => {
   const token = req.headers["x-ym-token"];
@@ -45,9 +82,7 @@ router.post("/ym/report", async (req, res) => {
   try {
     while (pageNum < MAX_PAGES) {
       pageNum++;
-      const url = new URL(
-        `${YM_BASE}/v2/campaigns/${campaignId}/stats/orders`
-      );
+      const url = `${YM_BASE}/v2/campaigns/${campaignId}/stats/orders`;
 
       const bodyPayload: Record<string, unknown> = {
         dateFrom: fmtDate(dateFrom),
@@ -63,24 +98,7 @@ router.post("/ym/report", async (req, res) => {
       };
       if (pageToken) bodyPayload["pageToken"] = pageToken;
 
-      const upstream = await fetch(url.toString(), {
-        method: "POST",
-        headers: {
-          Authorization: `OAuth ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(bodyPayload),
-        signal: AbortSignal.timeout(30_000),
-      });
-
-      if (!upstream.ok) {
-        const text = await upstream.text().catch(() => String(upstream.status));
-        req.log.warn({ status: upstream.status, text }, "ym api error");
-        res.status(upstream.status).json({ error: text });
-        return;
-      }
-
-      const body = (await upstream.json()) as {
+      const data = (await curlPost(url, token, bodyPayload)) as {
         status: string;
         result: {
           orders: unknown[];
@@ -88,10 +106,10 @@ router.post("/ym/report", async (req, res) => {
         };
       };
 
-      const orders = body.result?.orders ?? [];
+      const orders = data.result?.orders ?? [];
       allOrders.push(...orders);
 
-      const next = body.result?.pager?.nextPageToken;
+      const next = data.result?.pager?.nextPageToken;
       if (!next || orders.length === 0) break;
       pageToken = next;
     }
@@ -99,8 +117,16 @@ router.post("/ym/report", async (req, res) => {
     req.log.info({ orders: allOrders.length }, "ym report done");
     res.json(allOrders);
   } catch (err) {
+    const e = err as Error & { statusCode?: number; responseBody?: string };
     req.log.error({ err }, "ym fetch error");
-    res.status(502).json({ error: "Не удалось связаться с Яндекс Маркет API" });
+
+    if (e.statusCode === 401 || e.statusCode === 403) {
+      res.status(e.statusCode).json({ error: `Неверный OAuth-токен ЯМ (${e.statusCode}). Проверьте токен в настройках партнёра.` });
+    } else if (e.statusCode) {
+      res.status(e.statusCode).json({ error: e.message });
+    } else {
+      res.status(502).json({ error: "Не удалось связаться с Яндекс Маркет API" });
+    }
   }
 });
 
