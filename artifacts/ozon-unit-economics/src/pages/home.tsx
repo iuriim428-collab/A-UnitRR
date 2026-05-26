@@ -32,9 +32,10 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 }
 
 function formatLabel(format: string) {
-  if (format === 'nacisleniya') return 'НАЧИСЛЕНИЯ';
-  if (format === 'new') return 'РЕАЛИЗАЦИЯ (НОВЫЙ)';
-  if (format === 'old') return 'РЕАЛИЗАЦИЯ (СТАРЫЙ)';
+  if (format === 'nacisleniya') return 'OZON · НАЧИСЛЕНИЯ';
+  if (format === 'new')         return 'OZON · РЕАЛИЗАЦИЯ (НОВЫЙ)';
+  if (format === 'old')         return 'OZON · РЕАЛИЗАЦИЯ (СТАРЫЙ)';
+  if (format === 'yandex')      return 'ЯНДЕКС МАРКЕТ';
   return '';
 }
 
@@ -256,15 +257,18 @@ export default function Home() {
           >
             <FileSpreadsheet className="w-12 h-12 mx-auto mb-4 text-muted-foreground/40" />
             <p className="text-base font-medium mb-1">
-              {loading ? 'Читаю файл...' : 'Перетащите отчёт Ozon или нажмите для выбора'}
+              {loading ? 'Читаю файл...' : 'Перетащите отчёт или нажмите для выбора'}
             </p>
             <p className="text-xs text-muted-foreground mb-4">
-              Поддерживаются отчёты из кабинета Ozon в форматах .xlsx, .xls
+              Поддерживаются отчёты Ozon и Яндекс Маркета в форматах .xlsx
             </p>
-            <p className="text-[11px] text-muted-foreground/60">
-              «Отчёт по начислениям» (Финансы → Начисления)<br />
-              Отчёт о реализации (новый и старый форматы)
-            </p>
+            <div className="text-[11px] text-muted-foreground/60 space-y-1.5">
+              <p className="font-medium text-muted-foreground/80">Ozon</p>
+              <p>«Отчёт по начислениям» (Финансы → Начисления)<br />
+              Отчёт о реализации (новый и старый форматы)</p>
+              <p className="font-medium text-muted-foreground/80 mt-1">Яндекс Маркет</p>
+              <p>«Отчёт о заказах» (united_orders_*.xlsx)</p>
+            </div>
             {error && (
               <p className="mt-4 text-xs text-red-400 border border-red-400/20 bg-red-400/10 px-3 py-2">
                 {error}

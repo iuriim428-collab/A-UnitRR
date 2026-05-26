@@ -1,5 +1,5 @@
 export type TaxType = 'usn_income' | 'usn_income_expense' | 'osno' | 'none';
-export type ReportFormat = 'nacisleniya' | 'new' | 'old' | 'unknown';
+export type ReportFormat = 'nacisleniya' | 'new' | 'old' | 'yandex' | 'unknown';
 
 export interface TaxSettings {
   type: TaxType;

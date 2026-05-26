@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { preprocessXlsx } from './xlsx-reader';
+import { parseYandexMarket, isYandexMarketWorkbook } from './yandex-excel';
 import { OzonReportRow, ReportFormat } from '../types';
 
 function num(v: unknown): number {
@@ -277,6 +278,13 @@ export async function parseOzonReport(file: File): Promise<{ rows: OzonReportRow
   const buffer = preprocessXlsx(rawBuffer);
 
   const wb = XLSX.read(buffer, { type: 'array', cellDates: false });
+
+  // Detect Yandex Market report by sheet names
+  if (isYandexMarketWorkbook(wb.SheetNames)) {
+    const rows = parseYandexMarket(wb);
+    if (rows.length > 0) return { rows, format: 'yandex' };
+  }
+
   const sheets = sortSheets(wb.SheetNames);
 
   for (const sheetName of sheets) {
