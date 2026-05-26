@@ -249,7 +249,7 @@ router.post("/ozon/product-lookup", async (req, res) => {
  *  - list of campaigns with statistics (spend, views, clicks, orders, revenue, ДРР)
  *  - per-article (offer_id) ad spend breakdown (spend distributed across products in each campaign)
  */
-const PERF_BASE = "https://performance.ozon.ru";
+const PERF_BASE = "https://api-performance.ozon.ru";
 
 interface PerfCampaignRaw {
   id: string;
