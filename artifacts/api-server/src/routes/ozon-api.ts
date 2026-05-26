@@ -72,12 +72,6 @@ router.post("/ozon/report", async (req, res) => {
     }
 
     req.log.info({ operations: allOps.length }, "ozon report done");
-    // Log one sale-type operation and one service-type for parser debugging
-    const saleOp = allOps.find((o: any) =>
-      /delivered|accrual|agent/i.test(o.operation_type ?? '')
-    ) ?? allOps.find((o: any) => (o.amount ?? 0) > 0 && (o.items?.length ?? 0) > 0);
-    if (saleOp) req.log.info({ saleOp }, "ozon sample SALE operation");
-    if (allOps[0]) req.log.info({ first: allOps[0] }, "ozon first operation");
     res.json(allOps);
   } catch (err) {
     req.log.error({ err }, "ozon fetch error");

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useMarketplace, FilterType, MarketplaceKind } from '../hooks/use-marketplace';
 import { useOzonApi } from '../hooks/use-ozon-api';
 import { useYmApi } from '../hooks/use-ym-api';
@@ -8,11 +8,35 @@ import { exportToExcel } from '../lib/excel';
 import { isLocalProxyAvailable } from '../lib/wb-api';
 import { formatCurrency, formatPercent, formatNumber } from '../lib/utils';
 import { TaxSettings, TaxType, CalculatedRow, ReportSummary } from '../types';
+import { AnalyticsPanel } from '../components/analytics-charts';
 import {
   Upload, Download, Trash2, FolderOpen, FileSpreadsheet,
   Pencil, CheckCircle, AlertCircle, RefreshCw, Key, Calendar,
-  Eye, EyeOff, Folder, Globe,
+  Eye, EyeOff, Folder, Globe, BarChart2, Table2,
 } from 'lucide-react';
+
+// ─── ABC analysis ──────────────────────────────────────────────────────────────
+type AbcClass = 'A' | 'B' | 'C';
+
+function computeAbcMap(rows: CalculatedRow[]): Map<string, AbcClass> {
+  const sorted = [...rows].sort((a, b) => b.netSales - a.netSales);
+  const total  = sorted.reduce((s, r) => s + Math.max(r.netSales, 0), 0);
+  if (total === 0) return new Map();
+  let cum = 0;
+  const map = new Map<string, AbcClass>();
+  for (const r of sorted) {
+    cum += Math.max(r.netSales, 0);
+    const pct = cum / total;
+    map.set(r.article, pct <= 0.8 ? 'A' : pct <= 0.95 ? 'B' : 'C');
+  }
+  return map;
+}
+
+const ABC_STYLE: Record<AbcClass, string> = {
+  A: 'bg-green-500/20 text-green-400 border border-green-500/30',
+  B: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30',
+  C: 'bg-red-500/20 text-red-400/80 border border-red-500/20',
+};
 
 // ─── Tax options ──────────────────────────────────────────────────────────────
 const TAX_OPTIONS: { label: string; type: TaxType; rate: number }[] = [
@@ -188,13 +212,15 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost }: {
   setEditing: (a: string | null) => void;
   updateCost: (article: string, field: 'costPerUnit' | 'vatRate', value: number) => void;
 }) {
-  const cols = ['Артикул','Название','Прод.','Возвр.','Ср. цена','Выручка','Комиссия','Доставка','Партнёры','Хранение'];
+  const abcMap = useMemo(() => computeAbcMap(rows), [rows]);
+
+  const cols = ['ABC','Артикул','Название','Прод.','Возвр.','Ср. цена','Выручка','Комиссия','Доставка','Партнёры','Хранение'];
   return (
     <table className="w-full text-xs border-collapse">
       <thead className="sticky top-[33px] z-10 bg-card">
         <tr className="border-b border-border">
           {cols.map(h => (
-            <th key={h} className={`px-3 py-2 font-medium text-muted-foreground whitespace-nowrap ${h === 'Артикул' || h === 'Название' ? 'text-left' : 'text-right'}`}>{h}</th>
+            <th key={h} className={`px-3 py-2 font-medium text-muted-foreground whitespace-nowrap ${h === 'Артикул' || h === 'Название' ? 'text-left' : h === 'ABC' ? 'text-center' : 'text-right'}`}>{h}</th>
           ))}
           <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">
             <span className="flex items-center justify-end gap-1">Себест. <Pencil className="w-2.5 h-2.5 text-primary/60" /></span>
@@ -207,9 +233,17 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost }: {
       <tbody>
         {rows.map((row, idx) => {
           const isEditing = editingArticle === row.article;
-          const c = costs[row.article] ?? { costPerUnit: 0, vatRate: 0 };
+          const c   = costs[row.article] ?? { costPerUnit: 0, vatRate: 0 };
+          const abc = abcMap.get(row.article);
           return (
             <tr key={row.article} className={`border-b border-border/30 hover:bg-muted/20 ${idx % 2 ? 'bg-muted/5' : ''}`}>
+              <td className="px-2 py-1.5 text-center">
+                {abc && (
+                  <span className={`inline-block w-5 text-center text-[10px] font-bold leading-5 ${ABC_STYLE[abc]}`}>
+                    {abc}
+                  </span>
+                )}
+              </td>
               <td className="px-3 py-1.5 font-medium text-primary/80 whitespace-nowrap">{row.article}</td>
               <td className="px-3 py-1.5 text-muted-foreground max-w-[160px] truncate" title={row.name}>{row.name}</td>
               <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(row.salesCount)}</td>
@@ -248,24 +282,51 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost }: {
 }
 
 // ─── Filter + export bar ──────────────────────────────────────────────────────
-function ActionBar({ filter, setFilter, hasCosts, costsCount, onExport }: {
+function ActionBar({ filter, setFilter, hasCosts, costsCount, onExport, viewMode, setViewMode }: {
   filter: FilterType; setFilter: (f: FilterType) => void;
   hasCosts: boolean; costsCount: number; onExport: () => void;
+  viewMode?: 'table' | 'charts'; setViewMode?: (v: 'table' | 'charts') => void;
 }) {
   return (
     <div className="flex-none flex items-center gap-2 px-3 py-1 border-b border-border/30 bg-card text-[11px]">
-      <Pencil className="w-3 h-3 text-muted-foreground/40" />
-      <span className="text-muted-foreground/50">Нажмите «Себест.» для редактирования</span>
-      {hasCosts && <span className="text-green-400/60">· указана для {costsCount} SKU</span>}
+      {viewMode === 'table' && (
+        <>
+          <Pencil className="w-3 h-3 text-muted-foreground/40" />
+          <span className="text-muted-foreground/50">Нажмите «Себест.» для редактирования</span>
+          {hasCosts && <span className="text-green-400/60">· указана для {costsCount} SKU</span>}
+        </>
+      )}
       <div className="flex-1" />
-      <div className="flex border border-border">
-        {(['all', 'profitable', 'unprofitable'] as FilterType[]).map((f, i) => (
-          <button key={f} onClick={e => { e.stopPropagation(); setFilter(f); }}
-            className={`px-3 py-1 ${filter === f ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'} ${i > 0 ? 'border-l border-border' : ''}`}>
-            {f === 'all' ? 'Все' : f === 'profitable' ? 'Прибыльные' : 'Убыточные'}
+
+      {/* View toggle */}
+      {setViewMode && (
+        <div className="flex border border-border mr-1">
+          <button
+            onClick={e => { e.stopPropagation(); setViewMode('table'); }}
+            title="Таблица"
+            className={`flex items-center gap-1.5 px-2.5 py-1 transition-colors ${viewMode === 'table' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>
+            <Table2 className="w-3 h-3" /> Таблица
           </button>
-        ))}
-      </div>
+          <button
+            onClick={e => { e.stopPropagation(); setViewMode('charts'); }}
+            title="Графики"
+            className={`flex items-center gap-1.5 px-2.5 py-1 border-l border-border transition-colors ${viewMode === 'charts' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>
+            <BarChart2 className="w-3 h-3" /> Графики
+          </button>
+        </div>
+      )}
+
+      {viewMode !== 'charts' && (
+        <div className="flex border border-border">
+          {(['all', 'profitable', 'unprofitable'] as FilterType[]).map((f, i) => (
+            <button key={f} onClick={e => { e.stopPropagation(); setFilter(f); }}
+              className={`px-3 py-1 ${filter === f ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'} ${i > 0 ? 'border-l border-border' : ''}`}>
+              {f === 'all' ? 'Все' : f === 'profitable' ? 'Прибыльные' : 'Убыточные'}
+            </button>
+          ))}
+        </div>
+      )}
+
       <button onClick={e => { e.stopPropagation(); onExport(); }}
         className="flex items-center gap-1.5 px-3 py-1 bg-primary text-primary-foreground hover:opacity-90">
         <Download className="w-3 h-3" /> Экспорт
@@ -490,6 +551,9 @@ function OzonTabContent({ mp, api }: {
     setMode(m); localStorage.setItem('ozon_tab_mode', m);
   };
 
+  const [viewMode, setViewModeState] = useState<'table' | 'charts'>('table');
+  const setViewMode = (v: 'table' | 'charts') => setViewModeState(v);
+
   const [editingArticle, setEditingArticle] = useState<string | null>(null);
   const [adSpend, setAdSpendState] = useState<number>(() => parseFloat(localStorage.getItem('ozon_ad_spend') ?? '0') || 0);
   const setAdSpend = (v: number) => { setAdSpendState(v); localStorage.setItem('ozon_ad_spend', String(v)); };
@@ -561,13 +625,18 @@ function OzonTabContent({ mp, api }: {
 
             <ActionBar filter={active.filter} setFilter={active.setFilter}
               hasCosts={active.hasCosts} costsCount={Object.keys(active.costs).length}
-              onExport={mkExport('ozon')} />
+              onExport={mkExport('ozon')}
+              viewMode={viewMode} setViewMode={setViewMode} />
 
-            <div className="flex-1 overflow-auto">
-              <SkuTable rows={active.calculatedRows} costs={active.costs}
-                editingArticle={editingArticle} setEditing={setEditingArticle}
-                updateCost={active.updateCost} />
-            </div>
+            {viewMode === 'charts' ? (
+              <AnalyticsPanel summary={active.summary} rows={active.calculatedRows} />
+            ) : (
+              <div className="flex-1 overflow-auto">
+                <SkuTable rows={active.calculatedRows} costs={active.costs}
+                  editingArticle={editingArticle} setEditing={setEditingArticle}
+                  updateCost={active.updateCost} />
+              </div>
+            )}
           </>
         ) : (
           mode === 'files'

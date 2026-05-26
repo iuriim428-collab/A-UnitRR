@@ -1,3 +1,2 @@
 - [YM API auth](ym-api-auth.md) — токен ЯМ должен быть y0_Ag.../Ag... (OAuth), а не ACMA: (IAM); curl-subprocess решил блокировку TLS
 - [WB API proxy](wb-api-proxy.md) — WB s2s заблокировал GCP IP; локальный прокси local-wb-proxy.mjs на порту 3001
-- [Ozon debug logs](ozon-debug-logs.md) — в ozon-api.ts остались debug console.log (saleOp + first operation) — нужно убрать
