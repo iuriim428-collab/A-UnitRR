@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { OzonReportRow, SkuCost, TaxSettings, CalculatedRow, ReportSummary } from '../types';
 import { fetchWBReport, parseWBRows } from '../lib/wb-api';
 import { calcRow, calcSummary } from '../lib/calculator';
@@ -16,27 +16,35 @@ function firstOfMonthStr() {
 }
 
 const LS_TOKEN_KEY = 'wb_api_token';
+const LS_COSTS_KEY = 'costs_wb_api';
+function loadCosts(): Record<string, SkuCost> {
+  try { const s = localStorage.getItem(LS_COSTS_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
+}
 
 export function useWildberries(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
-  const [rows, setRows]       = useState<OzonReportRow[]>([]);
-  const [costs, setCosts]     = useState<Record<string, SkuCost>>({});
-  const [filter, setFilter]   = useState<FilterType>('all');
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
-  const [rowCount, setRowCount] = useState<number | null>(null); // raw WB rows loaded
+  const [rows, setRows]         = useState<OzonReportRow[]>([]);
+  const [costs, setCosts]       = useState<Record<string, SkuCost>>(loadCosts);
+  const [filter, setFilter]     = useState<FilterType>('all');
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+  const [rowCount, setRowCount] = useState<number | null>(null);
 
   // API token — persisted in localStorage
   const [token, setTokenState] = useState<string>(
     () => localStorage.getItem(LS_TOKEN_KEY) ?? ''
   );
+  // Date range — default to current month
+  const [dateFrom, setDateFrom] = useState(firstOfMonthStr);
+  const [dateTo,   setDateTo]   = useState(todayStr);
+
+  useEffect(() => {
+    try { localStorage.setItem(LS_COSTS_KEY, JSON.stringify(costs)); } catch {}
+  }, [costs]);
+
   const setToken = useCallback((t: string) => {
     setTokenState(t);
     localStorage.setItem(LS_TOKEN_KEY, t);
   }, []);
-
-  // Date range — default to current month
-  const [dateFrom, setDateFrom] = useState(firstOfMonthStr);
-  const [dateTo,   setDateTo]   = useState(todayStr);
 
   const calculatedRows = useMemo((): CalculatedRow[] => {
     return rows
@@ -62,7 +70,7 @@ export function useWildberries(tax: TaxSettings, setTax: (t: TaxSettings) => voi
       const raw = await fetchWBReport(token.trim(), dateFrom, dateTo, count => setRowCount(count));
       const parsed = parseWBRows(raw);
       setRows(parsed);
-      setCosts({});
+      // Do NOT reset costs — they persist across reloads
       setRowCount(raw.length);
       if (parsed.length === 0) setError('Нет данных за выбранный период');
     } catch (e) {

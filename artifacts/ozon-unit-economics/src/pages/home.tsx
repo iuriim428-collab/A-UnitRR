@@ -60,7 +60,19 @@ function ModeToggle({ mode, onChange }: { mode: 'files' | 'api'; onChange: (m: '
 }
 
 // ─── Summary sidebar ──────────────────────────────────────────────────────────
-function SummarySidebar({ s, hasCosts }: { s: ReportSummary; hasCosts: boolean }) {
+function SummarySidebar({ s, hasCosts, adSpend, setAdSpend }: {
+  s: ReportSummary; hasCosts: boolean; adSpend: number; setAdSpend: (v: number) => void;
+}) {
+  const [adInput, setAdInput] = useState(adSpend > 0 ? String(adSpend) : '');
+  const adjProfit = s.netProfit - adSpend;
+  const adjMargin = s.netSales > 0 ? (adjProfit / s.netSales) * 100 : 0;
+
+  const commitAd = (raw: string) => {
+    const v = parseFloat(raw) || 0;
+    setAdSpend(v);
+    setAdInput(v > 0 ? String(v) : '');
+  };
+
   return (
     <aside className="flex-none w-52 bg-card border-r overflow-y-auto p-3 text-xs space-y-0.5">
       <SectionHdr>Ключевые показатели</SectionHdr>
@@ -78,7 +90,7 @@ function SummarySidebar({ s, hasCosts }: { s: ReportSummary; hasCosts: boolean }
       {s.lastMile         > 0 && <MetricRow label="└ Последняя миля" value={`-${formatCurrency(s.lastMile)}`}         sub />}
       {s.agentServices    > 0 && <MetricRow label="Услуги партнёров" value={`-${formatCurrency(s.agentServices)}`} />}
       {s.acquiring        > 0 && <MetricRow label="└ Эквайринг"      value={`-${formatCurrency(s.acquiring)}`}        sub />}
-      {s.promotion        > 0 && <MetricRow label="Продвижение"      value={`-${formatCurrency(s.promotion)}`} />}
+      {s.promotion        > 0 && <MetricRow label="Прод. на платформе" value={`-${formatCurrency(s.promotion)}`} />}
       {s.storage          > 0 && <MetricRow label="Хранение"          value={`-${formatCurrency(s.storage)}`} />}
       {s.fboServices      > 0 && <MetricRow label="Прочие услуги"    value={`-${formatCurrency(s.fboServices)}`} />}
       {s.otherExpenses    > 0 && <MetricRow label="Штрафы/прочее"    value={`-${formatCurrency(s.otherExpenses)}`} />}
@@ -91,14 +103,41 @@ function SummarySidebar({ s, hasCosts }: { s: ReportSummary; hasCosts: boolean }
       {s.vatAmount > 0 && <MetricRow label="НДС"  value={`-${formatCurrency(s.vatAmount)}`} />}
       <MetricRow label="Налог" value={s.taxAmount > 0 ? `-${formatCurrency(s.taxAmount)}` : '—'} />
 
+      {/* Ad spend — editable total */}
+      <SectionHdr>Реклама (общие)</SectionHdr>
+      <div className="flex items-center gap-1">
+        <input
+          type="number" min="0" step="any"
+          value={adInput}
+          onChange={e => setAdInput(e.target.value)}
+          onBlur={e => commitAd(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { commitAd(adInput); (e.target as HTMLInputElement).blur(); } }}
+          placeholder="0 ₽"
+          className="flex-1 bg-muted/30 border border-border px-2 py-1 text-[11px] tabular-nums font-mono outline-none focus:border-primary/60 placeholder:text-muted-foreground/30"
+        />
+        <span className="text-muted-foreground text-[10px]">₽</span>
+      </div>
+      {adSpend > 0 && (
+        <div className="text-[10px] text-red-400/70 tabular-nums">
+          -{formatCurrency(adSpend)} из прибыли
+        </div>
+      )}
+
       <div className="mt-3 pt-2 border-t border-border">
-        <div className="text-[10px] uppercase tracking-widest text-muted-foreground/50 mb-1">Чистая прибыль</div>
-        <div className={`text-2xl font-bold tabular-nums ${s.netProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-          {formatCurrency(s.netProfit)}
+        <div className="text-[10px] uppercase tracking-widest text-muted-foreground/50 mb-1">
+          {adSpend > 0 ? 'Прибыль с рекламой' : 'Чистая прибыль'}
         </div>
-        <div className={`text-xs mt-0.5 ${s.marginPercent >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
-          Маржа {formatPercent(s.marginPercent)}
+        <div className={`text-2xl font-bold tabular-nums ${adjProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+          {formatCurrency(adjProfit)}
         </div>
+        <div className={`text-xs mt-0.5 ${adjMargin >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
+          Маржа {formatPercent(adjMargin)}
+        </div>
+        {adSpend > 0 && (
+          <div className="text-[10px] text-muted-foreground/50 mt-1">
+            До рекламы: {formatCurrency(s.netProfit)}
+          </div>
+        )}
       </div>
 
       {!hasCosts && (
@@ -148,7 +187,7 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost }: {
   setEditing: (a: string | null) => void;
   updateCost: (article: string, field: 'costPerUnit' | 'vatRate', value: number) => void;
 }) {
-  const cols = ['Артикул','Название','Прод.','Возвр.','Ср. цена','Выручка','Комиссия','Доставка','Партнёры','Реклама','Хранение'];
+  const cols = ['Артикул','Название','Прод.','Возвр.','Ср. цена','Выручка','Комиссия','Доставка','Партнёры','Хранение'];
   return (
     <table className="w-full text-xs border-collapse">
       <thead className="sticky top-[33px] z-10 bg-card">
@@ -179,7 +218,6 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost }: {
               <td className="px-3 py-1.5 text-right tabular-nums text-orange-400/80">{row.ozonCommission > 0 ? `-${formatCurrency(row.ozonCommission)}` : '—'}</td>
               <td className="px-3 py-1.5 text-right tabular-nums text-blue-400/80">{row.deliveryServices > 0 ? `-${formatCurrency(row.deliveryServices)}` : '—'}</td>
               <td className="px-3 py-1.5 text-right tabular-nums text-purple-400/80">{row.agentServices > 0 ? `-${formatCurrency(row.agentServices)}` : '—'}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums text-pink-400/80">{row.promotion > 0 ? `-${formatCurrency(row.promotion)}` : '—'}</td>
               <td className="px-3 py-1.5 text-right tabular-nums text-cyan-400/80">{(row.storage + row.fboServices) > 0 ? `-${formatCurrency(row.storage + row.fboServices)}` : '—'}</td>
               <td className="px-1 py-0.5 text-right" onClick={e => { e.stopPropagation(); setEditing(row.article); }}>
                 {isEditing ? (
@@ -449,6 +487,8 @@ function OzonTabContent({ mp, api }: {
   };
 
   const [editingArticle, setEditingArticle] = useState<string | null>(null);
+  const [adSpend, setAdSpendState] = useState<number>(() => parseFloat(localStorage.getItem('ozon_ad_spend') ?? '0') || 0);
+  const setAdSpend = (v: number) => { setAdSpendState(v); localStorage.setItem('ozon_ad_spend', String(v)); };
 
   // Active data source
   const active   = mode === 'files' ? mp  : api;
@@ -473,7 +513,7 @@ function OzonTabContent({ mp, api }: {
 
   return (
     <div className="flex-1 flex overflow-hidden">
-      {hasData && <SummarySidebar s={active.summary} hasCosts={active.hasCosts} />}
+      {hasData && <SummarySidebar s={active.summary} hasCosts={active.hasCosts} adSpend={adSpend} setAdSpend={setAdSpend} />}
       <div className="flex-1 flex flex-col overflow-hidden" onClick={() => setEditingArticle(null)}>
 
         {/* Mode toggle always visible */}
@@ -562,6 +602,9 @@ function YmTabContent({ mp, api }: {
   };
 
   const [editingArticle, setEditingArticle] = useState<string | null>(null);
+  const [adSpend, setAdSpendState] = useState<number>(() => parseFloat(localStorage.getItem('ym_ad_spend') ?? '0') || 0);
+  const setAdSpend = (v: number) => { setAdSpendState(v); localStorage.setItem('ym_ad_spend', String(v)); };
+
   const active  = mode === 'files' ? mp  : api;
   const hasData = active.rows.length > 0;
 
@@ -582,7 +625,7 @@ function YmTabContent({ mp, api }: {
 
   return (
     <div className="flex-1 flex overflow-hidden">
-      {hasData && <SummarySidebar s={active.summary} hasCosts={active.hasCosts} />}
+      {hasData && <SummarySidebar s={active.summary} hasCosts={active.hasCosts} adSpend={adSpend} setAdSpend={setAdSpend} />}
       <div className="flex-1 flex flex-col overflow-hidden" onClick={() => setEditingArticle(null)}>
 
         {!hasData && (
@@ -655,6 +698,8 @@ function YmTabContent({ mp, api }: {
 // ─── WB tab ───────────────────────────────────────────────────────────────────
 function WbTabContent({ wb }: { wb: ReturnType<typeof useWildberries> }) {
   const [editingArticle, setEditingArticle] = useState<string | null>(null);
+  const [adSpend, setAdSpendState] = useState<number>(() => parseFloat(localStorage.getItem('wb_ad_spend') ?? '0') || 0);
+  const setAdSpend = (v: number) => { setAdSpendState(v); localStorage.setItem('wb_ad_spend', String(v)); };
   const hasData = wb.rows.length > 0;
 
   const setThisMonth = () => {
@@ -683,7 +728,7 @@ function WbTabContent({ wb }: { wb: ReturnType<typeof useWildberries> }) {
 
   return (
     <div className="flex-1 flex overflow-hidden">
-      {hasData && <SummarySidebar s={wb.summary} hasCosts={wb.hasCosts} />}
+      {hasData && <SummarySidebar s={wb.summary} hasCosts={wb.hasCosts} adSpend={adSpend} setAdSpend={setAdSpend} />}
       <div className="flex-1 flex flex-col overflow-hidden" onClick={() => setEditingArticle(null)}>
 
         <ApiSettingsBar

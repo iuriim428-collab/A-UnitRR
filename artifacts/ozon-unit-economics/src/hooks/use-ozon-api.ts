@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { OzonReportRow, SkuCost, TaxSettings, CalculatedRow, ReportSummary } from '../types';
 import { fetchOzonReport, parseOzonOperations } from '../lib/ozon-api-client';
 import { calcRow, calcSummary } from '../lib/calculator';
@@ -14,22 +14,30 @@ const firstOfMonth  = () => {
 };
 
 const LS = (k: string) => `ozon_api_${k}`;
+const LS_COSTS_KEY = 'costs_ozon_api';
+function loadCosts(): Record<string, SkuCost> {
+  try { const s = localStorage.getItem(LS_COSTS_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
+}
 
 export function useOzonApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
-  const [rows,    setRows]    = useState<OzonReportRow[]>([]);
-  const [costs,   setCosts]   = useState<Record<string, SkuCost>>({});
-  const [filter,  setFilter]  = useState<FilterType>('all');
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState<string | null>(null);
-  const [opCount, setOpCount] = useState<number | null>(null);
+  const [rows,     setRows]    = useState<OzonReportRow[]>([]);
+  const [costs,    setCosts]   = useState<Record<string, SkuCost>>(loadCosts);
+  const [filter,   setFilter]  = useState<FilterType>('all');
+  const [loading,  setLoading] = useState(false);
+  const [error,    setError]   = useState<string | null>(null);
+  const [opCount,  setOpCount] = useState<number | null>(null);
 
   const [clientId, setClientIdState] = useState(() => localStorage.getItem(LS('client_id')) ?? '');
   const [apiKey,   setApiKeyState]   = useState(() => localStorage.getItem(LS('api_key'))   ?? '');
+  const [dateFrom, setDateFrom]      = useState(firstOfMonth);
+  const [dateTo,   setDateTo]        = useState(todayStr);
+
+  useEffect(() => {
+    try { localStorage.setItem(LS_COSTS_KEY, JSON.stringify(costs)); } catch {}
+  }, [costs]);
+
   const setClientId = useCallback((v: string) => { setClientIdState(v); localStorage.setItem(LS('client_id'), v); }, []);
   const setApiKey   = useCallback((v: string) => { setApiKeyState(v);   localStorage.setItem(LS('api_key'),   v); }, []);
-
-  const [dateFrom, setDateFrom] = useState(firstOfMonth);
-  const [dateTo,   setDateTo]   = useState(todayStr);
 
   const calculatedRows = useMemo((): CalculatedRow[] =>
     rows
@@ -55,7 +63,7 @@ export function useOzonApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
       const ops    = await fetchOzonReport(clientId.trim(), apiKey.trim(), dateFrom, dateTo);
       const parsed = parseOzonOperations(ops);
       setRows(parsed);
-      setCosts({});
+      // Do NOT reset costs — they persist across reloads
       setOpCount(ops.length);
       if (parsed.length === 0) setError('Нет данных за выбранный период');
     } catch (e) {

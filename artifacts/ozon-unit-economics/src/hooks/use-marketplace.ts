@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { OzonReportRow, SkuCost, TaxSettings, ReportFormat, CalculatedRow, ReportSummary } from '../types';
 import { parseOzonReport } from '../lib/excel';
 import { mergeOzonRows } from '../lib/merge';
@@ -24,14 +24,24 @@ function formatBelongsTo(fmt: ReportFormat, kind: MarketplaceKind): boolean {
   return fmt === 'nacisleniya' || fmt === 'new' || fmt === 'old';
 }
 
+const costsKey = (kind: MarketplaceKind) => `costs_${kind}_file`;
+
+function loadCosts(key: string): Record<string, SkuCost> {
+  try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : {}; } catch { return {}; }
+}
+
 export function useMarketplace(kind: MarketplaceKind, sharedTax: TaxSettings, setSharedTax: (t: TaxSettings) => void) {
   const [rows, setRows] = useState<OzonReportRow[]>([]);
-  const [costs, setCosts] = useState<Record<string, SkuCost>>({});
+  const [costs, setCosts] = useState<Record<string, SkuCost>>(() => loadCosts(costsKey(kind)));
   const [filter, setFilter] = useState<FilterType>('all');
   const [loadedFiles, setLoadedFiles] = useState<LoadedFile[]>([]);
   const [folderName, setFolderName] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    try { localStorage.setItem(costsKey(kind), JSON.stringify(costs)); } catch {}
+  }, [costs, kind]);
 
   const calculatedRows = useMemo((): CalculatedRow[] => {
     return rows
@@ -72,7 +82,7 @@ export function useMarketplace(kind: MarketplaceKind, sharedTax: TaxSettings, se
     }
 
     setLoadedFiles(newFiles);
-    setCosts({});
+    // Do NOT reset costs — they persist across reloads
 
     if (batches.length > 0) {
       setRows(mergeOzonRows(batches));

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { OzonReportRow, SkuCost, TaxSettings, CalculatedRow, ReportSummary } from '../types';
 import { fetchYMReport, parseYMOrders } from '../lib/ym-api-client';
 import { calcRow, calcSummary } from '../lib/calculator';
@@ -14,10 +14,14 @@ const firstOfMonth = () => {
 };
 
 const LS = (k: string) => `ym_api_${k}`;
+const LS_COSTS_KEY = 'costs_ym_api';
+function loadCosts(): Record<string, SkuCost> {
+  try { const s = localStorage.getItem(LS_COSTS_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
+}
 
 export function useYmApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
   const [rows,        setRows]       = useState<OzonReportRow[]>([]);
-  const [costs,       setCosts]      = useState<Record<string, SkuCost>>({});
+  const [costs,       setCosts]      = useState<Record<string, SkuCost>>(loadCosts);
   const [filter,      setFilter]     = useState<FilterType>('all');
   const [loading,     setLoading]    = useState(false);
   const [error,       setError]      = useState<string | null>(null);
@@ -25,11 +29,15 @@ export function useYmApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
 
   const [token,      setTokenState]      = useState(() => localStorage.getItem(LS('token'))       ?? '');
   const [campaignId, setCampaignIdState] = useState(() => localStorage.getItem(LS('campaign_id')) ?? '');
+  const [dateFrom, setDateFrom]          = useState(firstOfMonth);
+  const [dateTo,   setDateTo]            = useState(todayStr);
+
+  useEffect(() => {
+    try { localStorage.setItem(LS_COSTS_KEY, JSON.stringify(costs)); } catch {}
+  }, [costs]);
+
   const setToken      = useCallback((v: string) => { setTokenState(v);      localStorage.setItem(LS('token'),       v); }, []);
   const setCampaignId = useCallback((v: string) => { setCampaignIdState(v); localStorage.setItem(LS('campaign_id'), v); }, []);
-
-  const [dateFrom, setDateFrom] = useState(firstOfMonth);
-  const [dateTo,   setDateTo]   = useState(todayStr);
 
   const calculatedRows = useMemo((): CalculatedRow[] =>
     rows
@@ -55,7 +63,7 @@ export function useYmApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
       const orders = await fetchYMReport(token.trim(), campaignId.trim(), dateFrom, dateTo);
       const parsed = parseYMOrders(orders);
       setRows(parsed);
-      setCosts({});
+      // Do NOT reset costs — they persist across reloads
       setOrderCount(orders.length);
       if (parsed.length === 0) setError('Нет данных за выбранный период');
     } catch (e) {
