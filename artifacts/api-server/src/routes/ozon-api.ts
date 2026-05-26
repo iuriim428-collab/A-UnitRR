@@ -79,4 +79,75 @@ router.post("/ozon/report", async (req, res) => {
   }
 });
 
+/**
+ * POST /api/ozon/product-lookup
+ * Headers: X-Ozon-Client-Id, X-Ozon-Api-Key
+ * Body: { sku: number }   ← Ozon item_id (число из URL страницы товара)
+ *
+ * Пытается получить данные товара по его Ozon SKU (item_id).
+ * Работает для товаров продавца; для чужих может вернуть ограниченные данные.
+ */
+router.post("/ozon/product-lookup", async (req, res) => {
+  const clientId = req.headers["x-ozon-client-id"];
+  const apiKey   = req.headers["x-ozon-api-key"];
+
+  if (!clientId || typeof clientId !== "string" || !apiKey || typeof apiKey !== "string") {
+    res.status(401).json({ error: "Нужны Client-Id и API-Key (используйте Ozon API-режим)" });
+    return;
+  }
+
+  const { sku } = req.body as { sku?: number };
+  if (!sku) {
+    res.status(400).json({ error: "Нужен параметр sku (Ozon item_id)" });
+    return;
+  }
+
+  req.log.info({ sku }, "ozon product lookup");
+
+  try {
+    const resp = await fetch(`${OZON_BASE}/v2/product/info`, {
+      method: "POST",
+      headers: {
+        "Client-Id": clientId,
+        "Api-Key": apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ sku }),
+    });
+
+    const data = await resp.json() as {
+      result?: {
+        name?: string;
+        price?: string;
+        min_price?: string;
+        old_price?: string;
+        rating?: number;
+        reviews_count?: number;
+        images?: string[];
+      };
+      message?: string;
+    };
+
+    if (!resp.ok) {
+      res.status(resp.status).json({ error: data?.message ?? `Ozon API ${resp.status}` });
+      return;
+    }
+
+    const p = data.result ?? {};
+    res.json({
+      sku,
+      name: p.name ?? "",
+      price: parseFloat(p.price ?? "0") || 0,
+      minPrice: parseFloat(p.min_price ?? "0") || 0,
+      oldPrice: parseFloat(p.old_price ?? "0") || 0,
+      rating: p.rating ?? null,
+      reviewsCount: p.reviews_count ?? null,
+      image: p.images?.[0] ?? null,
+    });
+  } catch (err) {
+    req.log.error({ err }, "product lookup error");
+    res.status(502).json({ error: "Ошибка подключения к Ozon API" });
+  }
+});
+
 export default router;

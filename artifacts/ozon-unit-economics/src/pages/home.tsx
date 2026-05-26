@@ -9,10 +9,11 @@ import { isLocalProxyAvailable } from '../lib/wb-api';
 import { formatCurrency, formatPercent, formatNumber } from '../lib/utils';
 import { TaxSettings, TaxType, CalculatedRow, ReportSummary } from '../types';
 import { AnalyticsPanel } from '../components/analytics-charts';
+import { CompetitorPanel } from '../components/competitor-panel';
 import {
   Upload, Download, Trash2, FolderOpen, FileSpreadsheet,
   Pencil, CheckCircle, AlertCircle, RefreshCw, Key, Calendar,
-  Eye, EyeOff, Folder, Globe, BarChart2, Table2,
+  Eye, EyeOff, Folder, Globe, BarChart2, Table2, Swords,
 } from 'lucide-react';
 
 // ─── ABC analysis ──────────────────────────────────────────────────────────────
@@ -282,10 +283,12 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost }: {
 }
 
 // ─── Filter + export bar ──────────────────────────────────────────────────────
+type ViewMode = 'table' | 'charts' | 'competitors';
+
 function ActionBar({ filter, setFilter, hasCosts, costsCount, onExport, viewMode, setViewMode }: {
   filter: FilterType; setFilter: (f: FilterType) => void;
   hasCosts: boolean; costsCount: number; onExport: () => void;
-  viewMode?: 'table' | 'charts'; setViewMode?: (v: 'table' | 'charts') => void;
+  viewMode?: ViewMode; setViewMode?: (v: ViewMode) => void;
 }) {
   return (
     <div className="flex-none flex items-center gap-2 px-3 py-1 border-b border-border/30 bg-card text-[11px]">
@@ -313,10 +316,16 @@ function ActionBar({ filter, setFilter, hasCosts, costsCount, onExport, viewMode
             className={`flex items-center gap-1.5 px-2.5 py-1 border-l border-border transition-colors ${viewMode === 'charts' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>
             <BarChart2 className="w-3 h-3" /> Графики
           </button>
+          <button
+            onClick={e => { e.stopPropagation(); setViewMode('competitors'); }}
+            title="Конкуренты"
+            className={`flex items-center gap-1.5 px-2.5 py-1 border-l border-border transition-colors ${viewMode === 'competitors' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>
+            <Swords className="w-3 h-3" /> Конкуренты
+          </button>
         </div>
       )}
 
-      {viewMode !== 'charts' && (
+      {viewMode !== 'charts' && viewMode !== 'competitors' && (
         <div className="flex border border-border">
           {(['all', 'profitable', 'unprofitable'] as FilterType[]).map((f, i) => (
             <button key={f} onClick={e => { e.stopPropagation(); setFilter(f); }}
@@ -551,8 +560,8 @@ function OzonTabContent({ mp, api }: {
     setMode(m); localStorage.setItem('ozon_tab_mode', m);
   };
 
-  const [viewMode, setViewModeState] = useState<'table' | 'charts'>('table');
-  const setViewMode = (v: 'table' | 'charts') => setViewModeState(v);
+  const [viewMode, setViewModeState] = useState<ViewMode>('table');
+  const setViewMode = (v: ViewMode) => setViewModeState(v);
 
   const [editingArticle, setEditingArticle] = useState<string | null>(null);
   const [adSpend, setAdSpendState] = useState<number>(() => parseFloat(localStorage.getItem('ozon_ad_spend') ?? '0') || 0);
@@ -630,6 +639,12 @@ function OzonTabContent({ mp, api }: {
 
             {viewMode === 'charts' ? (
               <AnalyticsPanel summary={active.summary} rows={active.calculatedRows} />
+            ) : viewMode === 'competitors' ? (
+              <CompetitorPanel
+                rows={active.calculatedRows}
+                clientId={api.clientId}
+                apiKey={api.apiKey}
+              />
             ) : (
               <div className="flex-1 overflow-auto">
                 <SkuTable rows={active.calculatedRows} costs={active.costs}
