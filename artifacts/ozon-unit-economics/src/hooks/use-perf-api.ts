@@ -1,7 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 const LS     = (k: string) => `perf_api_${k}`;
 const LS_SEL = (k: string) => `ozon_api_${k}`;
+
+const REPORT_KEY = 'perf_api_report_v2';
 
 export interface PerfCampaign {
   id: string;
@@ -25,12 +27,30 @@ export interface PerfReport {
   totalSpend?: number;
 }
 
+function loadCachedReport(): PerfReport | null {
+  try {
+    const raw = localStorage.getItem(REPORT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as PerfReport;
+  } catch { return null; }
+}
+
 export function usePerfApi() {
   const [clientId,     setClientIdState]     = useState(() => localStorage.getItem(LS('client_id'))     ?? '');
   const [clientSecret, setClientSecretState] = useState(() => localStorage.getItem(LS('client_secret')) ?? '');
   const [loading,  setLoading] = useState(false);
   const [error,    setError]   = useState<string | null>(null);
-  const [report,   setReport]  = useState<PerfReport | null>(null);
+  const [report,   setReport]  = useState<PerfReport | null>(loadCachedReport);
+
+  // Persist report to localStorage — only when it contains actual spend data
+  useEffect(() => {
+    try {
+      const hasSpend = report && Object.keys(report.spendByArticle).length > 0;
+      if (hasSpend) localStorage.setItem(REPORT_KEY, JSON.stringify(report));
+      else if (!report) localStorage.removeItem(REPORT_KEY);
+      // if report exists but spendByArticle is empty — leave localStorage unchanged
+    } catch { /* quota exceeded — ignore */ }
+  }, [report]);
 
   const setClientId = (v: string) => {
     setClientIdState(v); localStorage.setItem(LS('client_id'), v);
@@ -63,6 +83,12 @@ export function usePerfApi() {
       });
       const data = await resp.json() as PerfReport & { error?: string };
       if (!resp.ok) throw new Error(data.error ?? `Ошибка ${resp.status}`);
+      const newSpend = data.spendByArticle ?? {};
+      // Don't overwrite good cached data with an empty result (e.g. stats timed out on Ozon side)
+      if (Object.keys(newSpend).length === 0) {
+        setError('Данные о расходах не получены (Ozon ещё формирует отчёт). Попробуйте ещё раз.');
+        return;
+      }
       setReport({ ...data, source: 'performance' });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка загрузки Performance API');
