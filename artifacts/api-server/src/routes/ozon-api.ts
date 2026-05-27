@@ -323,48 +323,43 @@ router.post("/ozon/performance-report", async (req, res) => {
       signal: AbortSignal.timeout(15_000),
     });
     const campData = await campResp.json() as { list?: PerfCampaignRaw[] };
-    const campaigns: PerfCampaignRaw[] = campData.list ?? [];
+    const allCampaigns: PerfCampaignRaw[] = campData.list ?? [];
+
+    // Keep only active (RUNNING) campaigns — user wants only enabled ones
+    const campaigns = allCampaigns.filter(c => String(c.state ?? "").toUpperCase().includes("RUNNING"));
+
+    req.log.info({ total: allCampaigns.length, active: campaigns.length }, "perf campaigns filtered");
 
     if (campaigns.length === 0) {
       res.json({ campaigns: [], spendByArticle: {} });
       return;
     }
 
-    // 3. Statistics — try integer IDs first, then string IDs if that fails
+    // 3. Statistics — API allows max 10 campaigns per request, batch accordingly
     const campIdsInt = campaigns.map(c => Number(c.id)).filter(n => !isNaN(n));
     const statsMap = new Map<string, PerfStatRaw>();
 
-    // Try multiple stat request formats since the API can be finicky
-    const statsAttempts = [
-      { campaigns: campIdsInt, dateFrom, dateTo, groupBy: "NO_GROUP_BY" },
-      { campaigns: campIdsInt, dateFrom, dateTo },
-      { campaigns: campaigns.map(c => c.id), dateFrom, dateTo, groupBy: "NO_GROUP_BY" },
-      { campaigns: campaigns.map(c => c.id), dateFrom, dateTo },
-    ];
-
-    for (const body of statsAttempts) {
+    for (let i = 0; i < campIdsInt.length; i += 10) {
+      const chunk = campIdsInt.slice(i, i + 10);
       try {
         const statsResp = await fetch(`${PERF_BASE}/api/client/statistics/json`, {
           method: "POST",
           headers: { Authorization: auth, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ campaigns: chunk, dateFrom, dateTo, groupBy: "NO_GROUP_BY" }),
           signal: AbortSignal.timeout(30_000),
         });
         const statsRaw = await statsResp.json() as Record<string, unknown>;
-        req.log.info(
-          { statsStatus: statsResp.status, statsBody: JSON.stringify(statsRaw).slice(0, 400), bodyUsed: JSON.stringify(body).slice(0, 150) },
-          "perf stats attempt"
-        );
         if (statsResp.ok) {
           const statsData = statsRaw as { statistics?: PerfStatRaw[] };
           for (const s of statsData.statistics ?? []) statsMap.set(String(s.id), s);
-          req.log.info({ statsEntries: statsMap.size }, "perf stats ok");
-          break;
+        } else {
+          req.log.warn({ status: statsResp.status, body: JSON.stringify(statsRaw).slice(0, 200) }, "perf stats chunk failed");
         }
       } catch (e) {
-        req.log.warn({ err: e }, "perf stats attempt error");
+        req.log.warn({ err: e }, "perf stats chunk error");
       }
     }
+    req.log.info({ statsEntries: statsMap.size }, "perf stats done");
 
     // 4. Fetch objects for all campaigns.
     //    Separate two types of IDs:
