@@ -339,22 +339,59 @@ router.post("/ozon/performance-report", async (req, res) => {
     const campIdsInt = campaigns.map(c => Number(c.id)).filter(n => !isNaN(n));
     const statsMap = new Map<string, PerfStatRaw>();
 
+    // /api/client/statistics/json is ASYNC: POST creates a task → returns UUID,
+    // then poll GET /api/client/statistics/{UUID} until state == "OK".
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
     for (let i = 0; i < campIdsInt.length; i += 10) {
       const chunk = campIdsInt.slice(i, i + 10);
       try {
-        const statsResp = await fetch(`${PERF_BASE}/api/client/statistics/json`, {
+        // Step A: create report task
+        const createResp = await fetch(`${PERF_BASE}/api/client/statistics/json`, {
           method: "POST",
           headers: { Authorization: auth, "Content-Type": "application/json" },
           body: JSON.stringify({ campaigns: chunk, dateFrom, dateTo, groupBy: "NO_GROUP_BY" }),
-          signal: AbortSignal.timeout(30_000),
+          signal: AbortSignal.timeout(15_000),
         });
-        const statsRaw = await statsResp.json() as Record<string, unknown>;
-        if (statsResp.ok) {
-          const statsData = statsRaw as { statistics?: PerfStatRaw[] };
-          for (const s of statsData.statistics ?? []) statsMap.set(String(s.id), s);
-        } else {
-          req.log.warn({ status: statsResp.status, body: JSON.stringify(statsRaw).slice(0, 200) }, "perf stats chunk failed");
+        const createData = await createResp.json() as { UUID?: string; error?: string };
+        if (!createResp.ok || !createData.UUID) {
+          req.log.warn({ status: createResp.status, body: JSON.stringify(createData).slice(0, 200) }, "perf stats create failed");
+          continue;
         }
+        const uuid = createData.UUID;
+        req.log.info({ uuid, chunk: chunk.slice(0, 3) }, "perf stats task created");
+
+        // Step B: poll until ready (max ~30 s)
+        let ready = false;
+        for (let attempt = 0; attempt < 15; attempt++) {
+          await sleep(2_000);
+          const pollResp = await fetch(`${PERF_BASE}/api/client/statistics/${uuid}`, {
+            headers: { Authorization: auth },
+            signal: AbortSignal.timeout(10_000),
+          });
+          const pollData = await pollResp.json() as {
+            state?: string;
+            statistics?: PerfStatRaw[];
+            list?: PerfStatRaw[];
+            result?: PerfStatRaw[];
+            error?: string;
+          };
+          req.log.info(
+            { uuid, attempt, state: pollData.state, bodyPreview: JSON.stringify(pollData).slice(0, 300) },
+            "perf stats poll"
+          );
+          if (pollData.state === "OK" || pollData.state === "DONE" || pollData.state === "READY") {
+            const entries = pollData.statistics ?? pollData.list ?? pollData.result ?? [];
+            for (const s of entries) statsMap.set(String(s.id), s);
+            ready = true;
+            break;
+          }
+          if (pollData.state === "ERROR" || pollData.error) {
+            req.log.warn({ uuid, pollData }, "perf stats task error");
+            break;
+          }
+        }
+        if (!ready) req.log.warn({ uuid }, "perf stats task timed out");
       } catch (e) {
         req.log.warn({ err: e }, "perf stats chunk error");
       }
