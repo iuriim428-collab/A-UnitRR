@@ -330,25 +330,51 @@ router.post("/ozon/performance-report", async (req, res) => {
       return;
     }
 
-    // 3. Statistics — campaign IDs must be integers (API requirement)
-    const campIdsInt = campaigns.map(c => Number(c.id));
-    const statsResp = await fetch(`${PERF_BASE}/api/client/statistics/json`, {
-      method: "POST",
-      headers: { Authorization: auth, "Content-Type": "application/json" },
-      body: JSON.stringify({ campaigns: campIdsInt, dateFrom, dateTo, groupBy: "NO_GROUP_BY" }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    const statsRaw = await statsResp.json() as Record<string, unknown>;
-    req.log.info({ statsStatus: statsResp.status, statsKeys: Object.keys(statsRaw) }, "perf stats raw");
-
-    const statsData = statsRaw as { statistics?: PerfStatRaw[] };
+    // 3. Statistics — try integer IDs first, then string IDs if that fails
+    const campIdsInt = campaigns.map(c => Number(c.id)).filter(n => !isNaN(n));
     const statsMap = new Map<string, PerfStatRaw>();
-    for (const s of statsData.statistics ?? []) statsMap.set(String(s.id), s);
 
-    // 4. Fetch objects for all campaigns (product IDs in each campaign)
-    //    Collect all product IDs for batch Seller API resolution
-    const campProducts = new Map<string, string[]>(); // campId → productId[]
-    const allProductIds = new Set<string>();
+    // Try multiple stat request formats since the API can be finicky
+    const statsAttempts = [
+      { campaigns: campIdsInt, dateFrom, dateTo, groupBy: "NO_GROUP_BY" },
+      { campaigns: campIdsInt, dateFrom, dateTo },
+      { campaigns: campaigns.map(c => c.id), dateFrom, dateTo, groupBy: "NO_GROUP_BY" },
+      { campaigns: campaigns.map(c => c.id), dateFrom, dateTo },
+    ];
+
+    for (const body of statsAttempts) {
+      try {
+        const statsResp = await fetch(`${PERF_BASE}/api/client/statistics/json`, {
+          method: "POST",
+          headers: { Authorization: auth, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(30_000),
+        });
+        const statsRaw = await statsResp.json() as Record<string, unknown>;
+        req.log.info(
+          { statsStatus: statsResp.status, statsBody: JSON.stringify(statsRaw).slice(0, 400), bodyUsed: JSON.stringify(body).slice(0, 150) },
+          "perf stats attempt"
+        );
+        if (statsResp.ok) {
+          const statsData = statsRaw as { statistics?: PerfStatRaw[] };
+          for (const s of statsData.statistics ?? []) statsMap.set(String(s.id), s);
+          req.log.info({ statsEntries: statsMap.size }, "perf stats ok");
+          break;
+        }
+      } catch (e) {
+        req.log.warn({ err: e }, "perf stats attempt error");
+      }
+    }
+
+    // 4. Fetch objects for all campaigns.
+    //    Separate two types of IDs:
+    //    a) numeric item_ids (Ozon SKU / item_id) — need Seller API resolution via `sku` param
+    //    b) string offer_ids / articles — can be used directly
+    const campProducts = new Map<string, string[]>(); // campId → ids
+    const allItemIds   = new Set<string>(); // numeric item_ids needing sku→offer_id resolution
+
+    // Pre-populate: if campaign objects already have offer_id/article we store directly
+    const productIdToArticle = new Map<string, string>();
 
     for (const camp of campaigns) {
       try {
@@ -359,52 +385,95 @@ router.post("/ozon/performance-report", async (req, res) => {
         if (objResp.ok) {
           const objRaw = await objResp.json() as { list?: Array<Record<string, unknown>> };
           const list = objRaw.list ?? [];
-          const ids = list
-            .map(p => String(p.id ?? p.offerId ?? p.offer_id ?? p.article ?? ""))
-            .filter(Boolean);
+
+          if (list.length > 0) {
+            req.log.info({ campId: camp.id, sampleObj: JSON.stringify(list[0]).slice(0, 200) }, "perf camp obj sample");
+          }
+
+          const ids: string[] = [];
+          for (const p of list) {
+            const id      = String(p.id      ?? "").trim();
+            const article = String(p.article ?? p.offer_id ?? p.offerId ?? "").trim();
+
+            if (id) {
+              ids.push(id);
+              if (article) {
+                // article available directly — no Seller API call needed
+                productIdToArticle.set(id, article);
+              } else {
+                // numeric id: will resolve via sku param
+                const n = Number(id);
+                if (!isNaN(n)) allItemIds.add(id);
+              }
+            } else if (article) {
+              // no numeric id, but offer_id present — use as both key and value
+              ids.push(article);
+              productIdToArticle.set(article, article);
+            }
+          }
           campProducts.set(camp.id, ids);
-          for (const id of ids) allProductIds.add(id);
         }
       } catch { /* skip */ }
     }
 
-    req.log.info({ totalProductIds: allProductIds.size }, "perf objects fetched");
+    req.log.info({
+      totalIds: campProducts.size > 0 ? Array.from(campProducts.values()).flat().length : 0,
+      needsResolution: allItemIds.size,
+      alreadyResolved: productIdToArticle.size,
+    }, "perf objects fetched");
 
-    // 5. Resolve product IDs → offer_id (article) via Seller API if credentials provided
-    const productIdToArticle = new Map<string, string>();
-    if (sellerClientId && sellerApiKey && allProductIds.size > 0) {
-      const ids = Array.from(allProductIds).map(Number).filter(n => !isNaN(n));
-      // Batch in chunks of 100
+    // 5. Resolve remaining numeric item_ids → offer_id via Seller API
+    //    Use `sku` parameter (item_id ≠ product_id in Ozon's model).
+    if (sellerClientId && sellerApiKey && allItemIds.size > 0) {
+      const ids = Array.from(allItemIds).map(Number).filter(n => !isNaN(n));
+
       for (let i = 0; i < ids.length; i += 100) {
         const batch = ids.slice(i, i + 100);
         try {
-          const infoResp = await fetch(`${OZON_BASE}/v2/product/info/list`, {
+          // First attempt: sku (item_id) — this is what Performance API objects return
+          let infoResp = await fetch(`${OZON_BASE}/v2/product/info/list`, {
             method: "POST",
             headers: {
               "Client-Id": String(sellerClientId),
-              "Api-Key": String(sellerApiKey),
+              "Api-Key":   String(sellerApiKey),
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ product_id: batch }),
+            body: JSON.stringify({ sku: batch }),
             signal: AbortSignal.timeout(15_000),
           });
+
+          // Fall back to product_id if sku didn't work
+          if (!infoResp.ok) {
+            req.log.warn({ status: infoResp.status, param: "sku" }, "product info sku failed, trying product_id");
+            infoResp = await fetch(`${OZON_BASE}/v2/product/info/list`, {
+              method: "POST",
+              headers: {
+                "Client-Id": String(sellerClientId),
+                "Api-Key":   String(sellerApiKey),
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ product_id: batch }),
+              signal: AbortSignal.timeout(15_000),
+            });
+          }
+
           if (infoResp.ok) {
             const infoData = await infoResp.json() as {
-              result?: { items?: Array<{ id?: number; offer_id?: string }> };
+              result?: { items?: Array<{ id?: number; sku?: number; offer_id?: string }> };
             };
             for (const item of infoData.result?.items ?? []) {
-              if (item.id != null && item.offer_id) {
-                productIdToArticle.set(String(item.id), item.offer_id);
-              }
+              const key = String(item.id ?? item.sku ?? "");
+              if (key && item.offer_id) productIdToArticle.set(key, item.offer_id);
             }
           } else {
-            req.log.warn({ status: infoResp.status }, "seller product info failed");
+            req.log.warn({ status: infoResp.status }, "seller product info all attempts failed");
           }
         } catch (e) {
           req.log.warn({ err: e }, "seller product info error");
         }
       }
-      req.log.info({ resolved: productIdToArticle.size, of: allProductIds.size }, "perf product resolve done");
+
+      req.log.info({ resolved: productIdToArticle.size, of: allItemIds.size }, "perf product resolve done");
     }
 
     // 6. Build results and spendByArticle
