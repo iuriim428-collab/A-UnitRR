@@ -6,7 +6,7 @@ import { useWildberries } from '../hooks/use-wildberries';
 import { usePerfApi, type PerfCampaign } from '../hooks/use-perf-api';
 import { supportsFolderPicker, pickFolder } from '../lib/folder-reader';
 import { exportToExcel } from '../lib/excel';
-import { isLocalProxyAvailable } from '../lib/wb-api';
+import { isLocalProxyAvailable, WBAnalyticsItem } from '../lib/wb-api';
 import { formatCurrency, formatPercent, formatNumber } from '../lib/utils';
 import { TaxSettings, TaxType, CalculatedRow, ReportSummary } from '../types';
 import {
@@ -206,16 +206,18 @@ function CostEditor({ article, costPerUnit, vatRate, onChangeCost, onChangeVat, 
 }
 
 // ─── SKU table ────────────────────────────────────────────────────────────────
-function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendByArticle }: {
+function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendByArticle, analyticsByArticle }: {
   rows: CalculatedRow[];
   costs: Record<string, { costPerUnit: number; vatRate: number }>;
   editingArticle: string | null;
   setEditing: (a: string | null) => void;
   updateCost: (article: string, field: 'costPerUnit' | 'vatRate', value: number) => void;
   spendByArticle?: Record<string, number>;
+  analyticsByArticle?: Record<string, WBAnalyticsItem>;
 }) {
   const abcMap = useMemo(() => computeAbcMap(rows), [rows]);
-  const hasPerfData = spendByArticle !== undefined;
+  const hasPerfData     = spendByArticle !== undefined;
+  const hasAnalytics    = analyticsByArticle !== undefined && Object.keys(analyticsByArticle).length > 0;
 
   const cols = ['ABC','Артикул','Название','Прод.','Возвр.','Ср. цена','Выручка','Комиссия','Доставка','Партнёры','Хранение'];
   return (
@@ -231,6 +233,21 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
                 <Megaphone className="w-2.5 h-2.5" />ДРР%
               </span>
             </th>
+          )}
+          {hasAnalytics && (
+            <>
+              <th className="text-right px-3 py-2 font-medium whitespace-nowrap">
+                <span className="text-sky-400/80 flex items-center justify-end gap-1">
+                  <Eye className="w-2.5 h-2.5" />Просм.
+                </span>
+              </th>
+              <th className="text-right px-3 py-2 font-medium whitespace-nowrap">
+                <span className="text-sky-400/80">В корз.%</span>
+              </th>
+              <th className="text-right px-3 py-2 font-medium whitespace-nowrap">
+                <span className="text-sky-400/80">Выкуп%</span>
+              </th>
+            </>
           )}
           <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">
             <span className="flex items-center justify-end gap-1">Себест. <Pencil className="w-2.5 h-2.5 text-primary/60" /></span>
@@ -276,6 +293,22 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
                   }
                 </td>
               )}
+              {hasAnalytics && (() => {
+                const an = analyticsByArticle?.[row.article];
+                return (
+                  <>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-sky-400/70">
+                      {an?.openCardCount ? formatNumber(an.openCardCount) : <span className="text-muted-foreground/30">—</span>}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-sky-400/70">
+                      {an?.addToCartConversion ? `${an.addToCartConversion.toFixed(1)}%` : <span className="text-muted-foreground/30">—</span>}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-sky-400/70">
+                      {an?.buyoutsPercent ? `${an.buyoutsPercent.toFixed(1)}%` : <span className="text-muted-foreground/30">—</span>}
+                    </td>
+                  </>
+                );
+              })()}
               <td className="px-1 py-0.5 text-right" onClick={e => { e.stopPropagation(); setEditing(row.article); }}>
                 {isEditing ? (
                   <CostEditor article={row.article} costPerUnit={c.costPerUnit} vatRate={c.vatRate}
@@ -981,12 +1014,26 @@ function WbTabContent({ wb }: { wb: ReturnType<typeof useWildberries> }) {
 
         <ApiSettingsBar
           accentColor="bg-violet-600 hover:bg-violet-500"
-          fields={[{ label: 'API-токен', value: wb.token, onChange: wb.setToken, placeholder: 'eyJ...', secret: true }]}
+          fields={[
+            { label: 'API-токен', value: wb.token, onChange: wb.setToken, placeholder: 'eyJ...', secret: true },
+            { label: 'Аналитика', value: wb.analyticsToken, onChange: wb.setAnalyticsToken, placeholder: 'если отличается', secret: true },
+            { label: 'Реклама', value: wb.advertToken, onChange: wb.setAdvertToken, placeholder: 'если отличается', secret: true },
+          ]}
           dateFrom={wb.dateFrom} setDateFrom={wb.setDateFrom}
           dateTo={wb.dateTo}     setDateTo={wb.setDateTo}
           loading={wb.loading}   error={wb.error}
           statusLine={wb.rowCount !== null
-            ? `Загружено ${wb.rowCount.toLocaleString('ru')} строк · ${wb.rows.length} SKU`
+            ? [
+                `Загружено ${wb.rowCount.toLocaleString('ru')} строк · ${wb.rows.length} SKU`,
+                wb.analyticsLoading ? '⏳ аналитика…'
+                  : wb.analyticsError ? `⚠ аналитика: ${wb.analyticsError}`
+                  : wb.hasAnalytics ? `📊 аналитика: ${Object.keys(wb.analytics).length} SKU`
+                  : '',
+                wb.advertLoading ? '⏳ реклама…'
+                  : wb.advertError ? `⚠ реклама: ${wb.advertError}`
+                  : wb.hasAdvert ? `📣 реклама: ${Object.keys(wb.advertSpendByArticle).length} SKU`
+                  : '',
+              ].filter(Boolean).join(' · ')
             : localProxy === true
               ? '🟢 Локальный прокси подключён — запросы идут с вашего IP'
               : localProxy === false
@@ -1005,7 +1052,8 @@ function WbTabContent({ wb }: { wb: ReturnType<typeof useWildberries> }) {
             <div className="flex-1 overflow-auto">
               <SkuTable rows={wb.calculatedRows} costs={wb.costs}
                 editingArticle={editingArticle} setEditing={setEditingArticle}
-                updateCost={wb.updateCost} />
+                updateCost={wb.updateCost}
+                analyticsByArticle={wb.hasAnalytics ? wb.analytics : undefined} />
             </div>
           </>
         ) : (
@@ -1058,7 +1106,7 @@ const SETTINGS_KEYS = [
   'perf_api_client_id', 'perf_api_client_secret',
   'costs_ozon_file',
   'ym_api_token', 'ym_api_campaign_id', 'costs_ym_api', 'costs_yandex_file',
-  'wb_api_token', 'costs_wb_api',
+  'wb_api_token', 'wb_analytics_token', 'wb_advert_token', 'costs_wb_api',
   'ozon_ad_spend', 'ym_ad_spend', 'wb_ad_spend',
 ];
 
