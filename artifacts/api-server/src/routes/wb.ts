@@ -52,18 +52,17 @@ router.get("/wb/report", async (req, res) => {
         const body = await upstream.text().catch(() => "");
         req.log.warn({ status: upstream.status, body }, "wb api error");
         if (upstream.status === 429) {
-          const isIpBlock = body.includes("s2s-api-auth-stat") || body.includes("dev.wildberries.ru");
-          if (isIpBlock) {
+          const isTokenError = body.includes("s2s-api-auth-stat") || body.includes("dev.wildberries.ru");
+          if (isTokenError) {
             res.status(429).json({
-              error: "WB заблокировал запрос с облачного сервера (IP не разрешён). " +
-                "Решение: запустите локальный прокси на своём компьютере командой " +
-                "«node local-wb-proxy.mjs» — тогда запросы пойдут с вашего IP. " +
-                "Статус прокси отображается в строке под токеном (🟢/🔴). " +
-                "Если прокси уже запущен и ошибка остаётся — пересоздайте токен на dev.wildberries.ru (раздел API-ключи → Статистика).",
+              error: "WB отклонил запрос к API Статистики (ошибка: s2s-api-auth-stat). " +
+                "Скорее всего используется токен неправильного типа. " +
+                "Создайте новый токен на dev.wildberries.ru: раздел «API-ключи» → кнопка «Создать новый токен» → тип «Статистика». " +
+                "Вставьте его в поле «Токен WB» и попробуйте снова.",
             });
             return;
           }
-          res.status(429).json({ error: "Превышен лимит запросов WB API. Подождите 1 минуту и повторите." });
+          res.status(429).json({ error: "Превышен лимит запросов WB API. Подождите 1–2 минуты и повторите." });
           return;
         }
         if (upstream.status === 401 || upstream.status === 403) {
