@@ -56,7 +56,7 @@ export function useYmApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
   }, []);
 
   const loadReport = useCallback(async () => {
-    if (!token.trim())      { setError('Введите OAuth-токен'); return; }
+    if (!token.trim())      { setError('Введите Api-Key из кабинета продавца'); return; }
     if (!campaignId.trim()) { setError('Введите ID кампании'); return; }
     setLoading(true); setError(null);
     try {

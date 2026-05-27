@@ -874,7 +874,7 @@ function YmTabContent({ mp, api }: {
           <ApiSettingsBar
             accentColor="bg-yellow-600 hover:bg-yellow-500"
             fields={[
-              { label: 'OAuth-токен', value: api.token,      onChange: api.setToken,      placeholder: 'AQAAAA…', secret: true },
+              { label: 'Api-Key', value: api.token,      onChange: api.setToken,      placeholder: 'ЯНДЕКС_АПИ_КЛЮЧ…', secret: true },
               { label: 'ID кампании', value: api.campaignId, onChange: api.setCampaignId, placeholder: '12345678' },
             ]}
             dateFrom={api.dateFrom} setDateFrom={api.setDateFrom}
@@ -914,16 +914,14 @@ function YmTabContent({ mp, api }: {
               <ApiEmptyState
                 icon={<Key className="w-6 h-6 text-yellow-400" />}
                 title="Подключение через Яндекс Маркет API"
-                hint="Введите OAuth-токен и ID кампании выше, затем нажмите «Загрузить»"
+                hint="Введите Api-Key и ID кампании выше, затем нажмите «Загрузить»"
                 steps={[
-                  '1. Откройте oauth.yandex.ru → «Получить OAuth-токен»',
-                  '   Приложение: «Яндекс Маркет Партнёрский API»',
-                  '   Право доступа: market:partner-api',
-                  '2. Скопируйте токен (начинается на y0_ или AQ...)',
-                  '   ⚠ Не используйте Application Password (ACMA:...)',
-                  '3. ID кампании: в URL кабинета partner.market.yandex.ru',
-                  '   Например: partner.market.yandex.ru/.../{ID}/...',
-                  '4. Доступны: продажи, комиссия, возвраты',
+                  '1. Откройте partner.market.yandex.ru',
+                  '2. Настройки → Доступ по API → «Создать токен»',
+                  '3. Скопируйте Api-Key и вставьте выше',
+                  '4. ID кампании — в URL кабинета:',
+                  '   .../business/.../campaigns/{ID}/...',
+                  '5. Доступны: продажи, комиссия, возвраты',
                 ]}
               />
             )

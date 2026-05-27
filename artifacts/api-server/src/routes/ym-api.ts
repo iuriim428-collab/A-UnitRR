@@ -10,21 +10,20 @@ const YM_BASE = "https://api.partner.market.yandex.ru";
  * Runs a curl POST request and returns parsed JSON.
  * We use curl instead of Node's fetch because Yandex blocks Node.js/undici
  * TLS fingerprints from GCP IPs, while curl's TLS stack is accepted.
+ *
+ * Auth: uses the new Api-Key header (OAuth is deprecated as of 2024).
+ * Api-Key is obtained in the seller cabinet: Настройки → Доступ по API → Создать токен.
  */
 async function curlPost(
   url: string,
-  authToken: string,
+  apiKey: string,
   body: unknown,
 ): Promise<unknown> {
-  // Yandex Market Partner API always uses "OAuth" scheme regardless of token format.
-  // Tokens may look like y0_Ag..., AQ..., or ACMA:... — all sent with OAuth prefix.
-  const authScheme = "OAuth";
-
   const { stdout } = await execFileAsync("curl", [
     "-s",
     "--max-time", "30",
     "-X", "POST",
-    "-H", `Authorization: ${authScheme} ${authToken}`,
+    "-H", `Api-Key: ${apiKey}`,
     "-H", "Content-Type: application/json",
     "-d", JSON.stringify(body),
     "--write-out", "\n%{http_code}",
@@ -47,7 +46,7 @@ async function curlPost(
 
 /**
  * POST /api/ym/report
- * Header: X-Ym-Token
+ * Header: X-Ym-Token  (Api-Key from the seller cabinet)
  * Body: { campaignId: string, dateFrom: "YYYY-MM-DD", dateTo: "YYYY-MM-DD" }
  *
  * Fetches order statistics from Yandex Market Partner API with pagination.
@@ -55,7 +54,7 @@ async function curlPost(
 router.post("/ym/report", async (req, res) => {
   const token = req.headers["x-ym-token"];
   if (!token || typeof token !== "string") {
-    res.status(401).json({ error: "Нужен заголовок X-Ym-Token (OAuth-токен)" });
+    res.status(401).json({ error: "Нужен заголовок X-Ym-Token (Api-Key из кабинета продавца)" });
     return;
   }
 
@@ -131,7 +130,9 @@ router.post("/ym/report", async (req, res) => {
     req.log.error({ err }, "ym fetch error");
 
     if (e.statusCode === 401 || e.statusCode === 403) {
-      res.status(e.statusCode).json({ error: `Неверный OAuth-токен (${e.statusCode}). Нужен токен с правом market:partner-api — получите на oauth.yandex.ru (не Application Password и не IAM-токен).` });
+      res.status(e.statusCode).json({
+        error: `Неверный Api-Key (${e.statusCode}). Проверьте токен: Кабинет продавца → Настройки → Доступ по API → Создать токен.`,
+      });
     } else if (e.statusCode) {
       res.status(e.statusCode).json({ error: e.message });
     } else {
