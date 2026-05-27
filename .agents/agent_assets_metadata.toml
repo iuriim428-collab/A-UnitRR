@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "OVY1vn5HVFG_nNGTI1b0_"
+uri = "file://artifacts/desktop/dist-electron/UnitEconomics-win-x64.zip"
+type = "unspecified"
+title = "Unit Economics — Windows x64 (портативная версия)"

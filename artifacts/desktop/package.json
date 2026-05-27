@@ -1,0 +1,57 @@
+{
+  "name": "@workspace/desktop",
+  "version": "1.0.0",
+  "description": "Unit Economics — Ozon, Яндекс Маркет, Wildberries",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "node build.mjs",
+    "dist:win": "node build.mjs && electron-builder --win --x64",
+    "dist:win:norebuild": "electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "ru.uniteconomics.desktop",
+    "productName": "Unit Economics",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "buildResources": "build-resources",
+      "output": "dist-electron"
+    },
+    "files": [
+      "main.js",
+      "preload.js"
+    ],
+    "extraResources": [
+      {
+        "from": "server-assets",
+        "to": "server-assets",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build-resources/icon.ico",
+      "signingHashAlgorithms": null,
+      "certificateFile": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Unit Economics",
+      "installerLanguages": ["ru_RU", "en_US"],
+      "language": "1049"
+    }
+  },
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}
