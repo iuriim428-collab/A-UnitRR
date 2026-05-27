@@ -12,3 +12,9 @@ id = "Pa6NUvuQ-Rl00G-l9xeDs"
 uri = "file://artifacts/ozon-unit-economics/public/UnitEconomics-win-x64-v2.zip"
 type = "unspecified"
 title = "UnitEconomics-win-x64-v2.zip (Десктоп, новая версия)"
+
+[[outputs]]
+id = "4wcgE7vpHFhDxid2BCiow"
+uri = "file://artifacts/desktop/dist-electron/UnitEconomics-win-x64-v2.zip"
+type = "unspecified"
+title = "UnitEconomics-win-x64-v2.zip — с фильтром, итогами, М/закуп."
