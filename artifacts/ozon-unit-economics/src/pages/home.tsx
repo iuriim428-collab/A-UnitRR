@@ -1051,6 +1051,47 @@ function WbTabContent({ wb }: { wb: ReturnType<typeof useWildberries> }) {
   );
 }
 
+// ─── Settings export / import ─────────────────────────────────────────────────
+const SETTINGS_KEYS = [
+  'ozon_api_client_id', 'ozon_api_api_key', 'costs_ozon_api',
+  'perf_api_client_id', 'perf_api_client_secret',
+  'costs_ozon_file',
+  'ym_api_token', 'ym_api_campaign_id', 'costs_ym_api', 'costs_yandex_file',
+  'wb_api_token', 'costs_wb_api',
+  'ozon_ad_spend', 'ym_ad_spend', 'wb_ad_spend',
+];
+
+function exportSettings() {
+  const data: Record<string, string> = {};
+  for (const k of SETTINGS_KEYS) {
+    const v = localStorage.getItem(k);
+    if (v !== null) data[k] = v;
+  }
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'unit-economics-settings.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importSettings(file: File, onDone: () => void) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target?.result as string) as Record<string, string>;
+      for (const [k, v] of Object.entries(data)) {
+        if (SETTINGS_KEYS.includes(k) && typeof v === 'string') {
+          localStorage.setItem(k, v);
+        }
+      }
+      onDone();
+    } catch { alert('Не удалось прочитать файл настроек'); }
+  };
+  reader.readAsText(file);
+}
+
 // ─── Root ─────────────────────────────────────────────────────────────────────
 type TabId = 'ozon' | 'yandex' | 'wildberries';
 
@@ -1063,6 +1104,7 @@ const TABS: { id: TabId; label: string; badgeClass: string }[] = [
 export default function Home() {
   const [activeTab, setActiveTab] = useState<TabId>('ozon');
   const [tax, setTax] = useState<TaxSettings>({ type: 'usn_income', rate: 0.06 });
+  const importRef = useRef<HTMLInputElement>(null);
 
   // File-based hooks (Ozon + YM)
   const ozonFile   = useMarketplace('ozon',   tax, setTax);
@@ -1104,6 +1146,31 @@ export default function Home() {
         </div>
 
         <div className="flex-1" />
+
+        {/* Settings export / import */}
+        <div className="flex items-center gap-1">
+          <button
+            title="Экспортировать настройки (ключи API, себестоимость)"
+            onClick={exportSettings}
+            className="flex items-center gap-1.5 h-7 px-2.5 text-[11px] border border-border bg-muted hover:bg-muted/70 transition-colors text-muted-foreground hover:text-foreground">
+            <Download className="w-3.5 h-3.5" />
+            <span>Настройки</span>
+          </button>
+          <button
+            title="Импортировать настройки из файла"
+            onClick={() => importRef.current?.click()}
+            className="flex items-center gap-1.5 h-7 px-2.5 text-[11px] border border-border bg-muted hover:bg-muted/70 transition-colors text-muted-foreground hover:text-foreground">
+            <Upload className="w-3.5 h-3.5" />
+          </button>
+          <input
+            ref={importRef} type="file" accept=".json" className="hidden"
+            onChange={e => {
+              const file = e.target.files?.[0];
+              if (file) importSettings(file, () => { window.location.reload(); });
+              e.target.value = '';
+            }}
+          />
+        </div>
 
         <select className="h-7 text-xs bg-muted border border-border rounded-none px-2 text-foreground"
           value={tax.type}
