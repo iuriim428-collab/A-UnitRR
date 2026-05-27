@@ -33143,7 +33143,7 @@ app.use("/api", routes_default);
 var frontendDir = process.env["SERVE_FRONTEND_DIR"];
 if (frontendDir && existsSync(frontendDir)) {
   app.use(import_express6.default.static(frontendDir));
-  app.get("*", (_req, res) => {
+  app.get("/{*path}", (_req, res) => {
     res.sendFile(join(frontendDir, "index.html"));
   });
 }

@@ -36,7 +36,7 @@ app.use("/api", router);
 const frontendDir = process.env["SERVE_FRONTEND_DIR"];
 if (frontendDir && existsSync(frontendDir)) {
   app.use(express.static(frontendDir));
-  app.get("*", (_req, res) => {
+  app.get("/{*path}", (_req, res) => {
     res.sendFile(join(frontendDir, "index.html"));
   });
 }
