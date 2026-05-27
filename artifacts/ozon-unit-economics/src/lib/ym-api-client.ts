@@ -2,47 +2,69 @@
  * Yandex Market Partner API client + parser.
  * Fetches order statistics via /api/ym/report proxy and converts to OzonReportRow[].
  *
- * Uses the POST /v2/campaigns/{id}/stats/orders endpoint.
- * Commission is taken from each order's commission.actual percentage.
- * Delivery/logistics costs are not available from this endpoint (use xlsx for full detail).
+ * Uses POST /v2/campaigns/{id}/stats/orders (Api-Key auth, v2 schema as of 2024+).
+ *
+ * Real response structure (confirmed from live API):
+ *  order.items[]          — array of items (NOT initialItems)
+ *  item.prices[]          — [{type:'MARKETPLACE'|'BUYER'|..., costPerItem, total}]
+ *  order.commissions[]    — [{type:'AUCTION_PROMOTION'|'MARKETPLACE_OFFER'|..., actual}]
+ *                           actual is a monetary AMOUNT in rubles (not a rate/percentage)
+ *  item.shopSku           — seller article
  */
 import { OzonReportRow } from '../types';
 
-// ─── Raw YM order shape ───────────────────────────────────────────────────────
+// ─── Raw YM order shape (v2 live API) ──────────────────────────────────────
+interface YMItemPrice {
+  type: string;       // 'MARKETPLACE' | 'BUYER' | 'SUBSIDY' | etc.
+  costPerItem: number;
+  total: number;
+}
+
 interface YMItem {
-  offerId: string;       // seller article
-  offerName: string;
-  price: number;         // seller price
-  buyerPrice: number;    // price paid by buyer
+  shopSku: string;        // seller article
+  offerName?: string;
+  marketSku?: number;
   count: number;
-  initialCount: number;
-  shopSku: string;
+  prices: YMItemPrice[];
+}
+
+interface YMCommission {
+  type: string;   // 'MARKETPLACE_OFFER' | 'AUCTION_PROMOTION' | etc.
+  actual: number; // monetary amount in RUB (not a percentage)
 }
 
 interface YMOrder {
   id: number;
-  creationDate: string;   // DD-MM-YYYY
+  creationDate: string;
   statusUpdateDate: string;
-  status: string;         // DELIVERED | RETURNED | CANCELLED_* | PICKUP | etc.
+  status: string;
   paymentType: string;
-  itemsTotal: number;
-  commission: {
-    actual: number;       // 0.13 = 13%
-    max: number;
-    min: number;
-  };
-  initialItems: YMItem[];
+  items: YMItem[];
+  commissions?: YMCommission[];
 }
 
-const DELIVERED_STATUSES = new Set([
-  'DELIVERED', 'PICKUP',
-]);
+const DELIVERED_STATUSES = new Set(['DELIVERED', 'PICKUP']);
 
 const RETURN_STATUSES = new Set([
-  'RETURNED', 'PARTIALLY_RETURNED',
-  'CANCELLED_IN_DELIVERY',
-  'CANCELLED_BY_USER_AFTER_CONFIRMATION',
+  'RETURNED', 'PARTIALLY_RETURNED', 'CANCELLED_IN_DELIVERY',
 ]);
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Revenue per item: prefer MARKETPLACE (what seller receives), fall back to BUYER. */
+function itemRevenue(item: YMItem): number {
+  const mp = item.prices?.find(p => p.type === 'MARKETPLACE');
+  if (mp) return mp.total;
+  const buyer = item.prices?.find(p => p.type === 'BUYER');
+  if (buyer) return buyer.total;
+  return 0;
+}
+
+/** Total commission amount (in RUB) for the whole order across all commission types. */
+function orderCommissionTotal(order: YMOrder): number {
+  if (!order.commissions?.length) return 0;
+  return order.commissions.reduce((sum, c) => sum + (c.actual ?? 0), 0);
+}
 
 // ─── Fetch ────────────────────────────────────────────────────────────────────
 export async function fetchYMReport(
@@ -73,17 +95,19 @@ export function parseYMOrders(orders: YMOrder[]): OzonReportRow[] {
   const acc: Record<string, OzonReportRow> = {};
 
   for (const order of orders) {
-    const items = order.initialItems ?? [];
+    const items = order.items ?? [];
     if (items.length === 0) continue;
 
     const isDelivered = DELIVERED_STATUSES.has(order.status);
     const isReturn    = RETURN_STATUSES.has(order.status);
     if (!isDelivered && !isReturn) continue;
 
-    const commissionRate = order.commission?.actual ?? 0;
+    // Commission is an order-level amount; distribute proportionally by revenue
+    const orderTotalRevenue = items.reduce((s, it) => s + itemRevenue(it), 0);
+    const orderCommission   = orderCommissionTotal(order);
 
     for (const item of items) {
-      const article = (item.offerId || item.shopSku || 'unknown').trim();
+      const article = (item.shopSku || 'unknown').trim();
 
       if (!acc[article]) {
         acc[article] = {
@@ -101,28 +125,30 @@ export function parseYMOrders(orders: YMOrder[]): OzonReportRow[] {
       }
       if (!acc[article].name && item.offerName) acc[article].name = item.offerName;
 
-      const r   = acc[article];
-      const qty = item.count || 0;
-      const price = item.buyerPrice || item.price || 0;
-      const lineRevenue = price * qty;
+      const r          = acc[article];
+      const qty        = item.count || 0;
+      const lineRev    = itemRevenue(item);
+
+      // Proportional share of order commission for this line item
+      const lineShare  = orderTotalRevenue > 0 ? lineRev / orderTotalRevenue : 1 / items.length;
+      const lineComm   = orderCommission * lineShare;
 
       if (isDelivered) {
-        r.salesCount  += qty;
-        r.ordersCount += qty;
-        r.ordersSum   += lineRevenue;
-        r.ozonCommission += lineRevenue * commissionRate;
+        r.salesCount    += qty;
+        r.ordersCount   += qty;
+        r.ordersSum     += lineRev;
+        r.ozonCommission += lineComm;
       }
 
       if (isReturn) {
-        r.returnsCount += qty;
-        r.returnsSum   += lineRevenue;
-        // Refund commission on returns
-        r.ozonCommission -= lineRevenue * commissionRate;
+        r.returnsCount  += qty;
+        r.returnsSum    += lineRev;
+        r.ozonCommission -= lineComm;
       }
     }
   }
 
-  // Compute netSales; floor commission at 0 (edge case: full return)
+  // Compute netSales; floor commission at 0
   for (const r of Object.values(acc)) {
     r.netSales = r.ordersSum - r.returnsSum;
     if (r.ozonCommission < 0) r.ozonCommission = 0;
