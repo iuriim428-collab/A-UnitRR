@@ -21,6 +21,8 @@ export interface PerfCampaign {
 export interface PerfReport {
   campaigns: PerfCampaign[];
   spendByArticle: Record<string, number>;
+  source?: 'performance' | 'analytics';
+  totalSpend?: number;
 }
 
 export function usePerfApi() {
@@ -37,12 +39,12 @@ export function usePerfApi() {
     setClientSecretState(v); localStorage.setItem(LS('client_secret'), v);
   };
 
+  /** Load via Ozon Performance API (separate credentials) */
   const load = useCallback(async (dateFrom: string, dateTo: string) => {
     if (!clientId.trim())     { setError('Введите Client-Id (Performance API)'); return; }
     if (!clientSecret.trim()) { setError('Введите Client-Secret (Performance API)'); return; }
     setLoading(true); setError(null);
     try {
-      // Read Seller API credentials to allow server to resolve product IDs → articles
       const sellerClientId = localStorage.getItem(LS_SEL('client_id')) ?? '';
       const sellerApiKey   = localStorage.getItem(LS_SEL('api_key'))   ?? '';
 
@@ -61,7 +63,7 @@ export function usePerfApi() {
       });
       const data = await resp.json() as PerfReport & { error?: string };
       if (!resp.ok) throw new Error(data.error ?? `Ошибка ${resp.status}`);
-      setReport(data);
+      setReport({ ...data, source: 'performance' });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка загрузки Performance API');
     } finally {
@@ -69,12 +71,63 @@ export function usePerfApi() {
     }
   }, [clientId, clientSecret]);
 
+  /**
+   * Load via Ozon Seller Analytics API — no extra credentials needed.
+   * Uses /api/ozon/adv-spend-by-sku which queries adv_sum_all per SKU.
+   */
+  const loadFromAnalytics = useCallback(async (
+    sellerClientId: string,
+    sellerApiKey: string,
+    dateFrom: string,
+    dateTo: string,
+  ) => {
+    if (!sellerClientId.trim() || !sellerApiKey.trim()) {
+      setError('Нужны Seller API credentials — введите Client-Id и API-Key выше');
+      return;
+    }
+    setLoading(true); setError(null);
+    try {
+      const resp = await fetch('/api/ozon/adv-spend-by-sku', {
+        method: 'POST',
+        headers: {
+          'Content-Type':   'application/json',
+          'X-Ozon-Client-Id': sellerClientId.trim(),
+          'X-Ozon-Api-Key':   sellerApiKey.trim(),
+        },
+        body: JSON.stringify({ dateFrom, dateTo }),
+      });
+      const data = await resp.json() as {
+        spendByArticle?: Record<string, number>;
+        totalSpend?: number;
+        skuCount?: number;
+        error?: string;
+      };
+      if (!resp.ok) throw new Error(data.error ?? `Ошибка ${resp.status}`);
+
+      const spendByArticle = data.spendByArticle ?? {};
+      const totalSpend     = data.totalSpend ?? 0;
+      const skuCount       = data.skuCount   ?? 0;
+
+      if (skuCount === 0) {
+        setError('Данные о рекламных расходах не найдены за указанный период (метрика adv_sum_all = 0 для всех товаров)');
+        setLoading(false);
+        return;
+      }
+
+      setReport({ campaigns: [], spendByArticle, source: 'analytics', totalSpend });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка загрузки рекламы из Analytics API');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const clear = useCallback(() => { setReport(null); setError(null); }, []);
 
   return {
     clientId, setClientId,
     clientSecret, setClientSecret,
     loading, error, report,
-    load, clear,
+    load, loadFromAnalytics, clear,
   };
 }

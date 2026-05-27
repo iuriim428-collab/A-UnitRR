@@ -450,4 +450,154 @@ router.post("/ozon/performance-report", async (req, res) => {
   }
 });
 
+/**
+ * POST /api/ozon/adv-spend-by-sku
+ * Headers: X-Ozon-Client-Id, X-Ozon-Api-Key  (regular Seller API credentials)
+ * Body: { dateFrom: "YYYY-MM-DD", dateTo: "YYYY-MM-DD" }
+ *
+ * Fetches per-SKU advertising spend from Ozon Analytics API (metric: adv_sum_all),
+ * then resolves item_id → offer_id (article) via /v2/product/info/list.
+ * Returns { spendByArticle: Record<string, number>, totalSpend: number, skuCount: number }
+ */
+router.post("/ozon/adv-spend-by-sku", async (req, res) => {
+  const clientId = req.headers["x-ozon-client-id"];
+  const apiKey   = req.headers["x-ozon-api-key"];
+
+  if (!clientId || typeof clientId !== "string" || !apiKey || typeof apiKey !== "string") {
+    res.status(401).json({ error: "Нужны X-Ozon-Client-Id и X-Ozon-Api-Key" });
+    return;
+  }
+
+  const { dateFrom, dateTo } = req.body as { dateFrom?: string; dateTo?: string };
+  if (!dateFrom || !dateTo) {
+    res.status(400).json({ error: "Нужны dateFrom и dateTo" });
+    return;
+  }
+
+  req.log.info({ dateFrom, dateTo }, "adv-spend-by-sku fetch");
+
+  try {
+    // Step 1: query Analytics API for adv_sum_all per SKU (paginated)
+    const allRows: Array<{ sku: string; spend: number }> = [];
+    let offset = 0;
+    const limit = 1000;
+
+    while (true) {
+      const resp = await fetch(`${OZON_BASE}/v1/analytics/data`, {
+        method: "POST",
+        headers: {
+          "Client-Id": clientId,
+          "Api-Key":   apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          date_from: dateFrom,
+          date_to:   dateTo,
+          dimension: ["sku"],
+          filters:   [],
+          metrics:   ["adv_sum_all"],
+          limit,
+          offset,
+          sort: [{ key: "adv_sum_all", order: "DESC" }],
+        }),
+        signal: AbortSignal.timeout(20_000),
+      });
+
+      const data = await resp.json() as {
+        result?: {
+          data?: Array<{
+            dimensions?: Array<{ id?: string; name?: string }>;
+            metrics?: number[];
+          }>;
+        };
+        message?: string;
+        code?: number;
+      };
+
+      if (!resp.ok) {
+        const msg = data.message ?? `Ozon Analytics ${resp.status}`;
+        req.log.warn({ status: resp.status, msg }, "adv analytics error");
+        res.status(resp.status).json({ error: msg });
+        return;
+      }
+
+      const rows = data.result?.data ?? [];
+      for (const row of rows) {
+        const sku   = String(row.dimensions?.[0]?.id ?? "");
+        const spend = row.metrics?.[0] ?? 0;
+        if (sku && spend > 0) allRows.push({ sku, spend });
+      }
+
+      if (rows.length < limit) break;
+      offset += limit;
+    }
+
+    req.log.info({ skuWithSpend: allRows.length }, "adv analytics rows fetched");
+
+    if (allRows.length === 0) {
+      res.json({ spendByArticle: {}, totalSpend: 0, skuCount: 0 });
+      return;
+    }
+
+    // Step 2: map item_id (Ozon SKU) → offer_id (seller article) in batches of 100
+    const skuIds     = allRows.map(r => Number(r.sku)).filter(n => !isNaN(n));
+    const skuToArticle = new Map<string, string>();
+
+    for (let i = 0; i < skuIds.length; i += 100) {
+      const batch = skuIds.slice(i, i + 100);
+      try {
+        const infoResp = await fetch(`${OZON_BASE}/v2/product/info/list`, {
+          method: "POST",
+          headers: {
+            "Client-Id":   clientId,
+            "Api-Key":     apiKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ product_id: batch }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (infoResp.ok) {
+          const infoData = await infoResp.json() as {
+            result?: { items?: Array<{ id?: number; offer_id?: string }> };
+          };
+          for (const item of infoData.result?.items ?? []) {
+            if (item.id != null && item.offer_id) {
+              skuToArticle.set(String(item.id), item.offer_id);
+            }
+          }
+        } else {
+          req.log.warn({ status: infoResp.status, batchStart: i }, "product info batch failed");
+        }
+      } catch (e) {
+        req.log.warn({ err: e, batchStart: i }, "product info batch error");
+      }
+    }
+
+    // Step 3: build spendByArticle
+    const spendByArticle: Record<string, number> = {};
+    let totalSpend = 0;
+    let unmapped   = 0;
+
+    for (const { sku, spend } of allRows) {
+      const article = skuToArticle.get(sku);
+      if (article) {
+        spendByArticle[article] = (spendByArticle[article] ?? 0) + spend;
+        totalSpend += spend;
+      } else {
+        unmapped++;
+      }
+    }
+
+    req.log.info(
+      { articles: Object.keys(spendByArticle).length, totalSpend: Math.round(totalSpend), unmapped },
+      "adv-spend-by-sku done"
+    );
+    res.json({ spendByArticle, totalSpend, skuCount: Object.keys(spendByArticle).length });
+
+  } catch (err) {
+    req.log.error({ err }, "adv-spend-by-sku error");
+    res.status(502).json({ error: "Ошибка подключения к Ozon API" });
+  }
+});
+
 export default router;

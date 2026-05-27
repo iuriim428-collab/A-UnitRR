@@ -409,51 +409,85 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
 
 // ─── Performance API bar ──────────────────────────────────────────────────────
 function PerfApiBar({ clientId, setClientId, clientSecret, setClientSecret,
-  loading, error, hasData, onLoad, onClear }: {
+  loading, error, hasData, onLoad, onClear, onLoadFromAnalytics, canLoadFromAnalytics }: {
   clientId: string; setClientId: (v: string) => void;
   clientSecret: string; setClientSecret: (v: string) => void;
   loading: boolean; error: string | null; hasData: boolean;
   onLoad: () => void; onClear: () => void;
+  onLoadFromAnalytics?: () => void;
+  canLoadFromAnalytics?: boolean;
 }) {
   const [showSecret, setShowSecret] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
   return (
-    <div className="flex-none border-b border-yellow-500/20 bg-yellow-500/5 px-4 py-2 text-[11px]" onClick={e => e.stopPropagation()}>
-      <div className="flex items-center gap-3 flex-wrap">
+    <div className="flex-none border-b border-yellow-500/20 bg-yellow-500/5 text-[11px]" onClick={e => e.stopPropagation()}>
+      {/* Primary row: Analytics API button (simpler, no extra creds) */}
+      <div className="flex items-center gap-3 flex-wrap px-4 py-2">
         <Megaphone className="w-3.5 h-3.5 text-yellow-400/80 flex-shrink-0" />
-        <span className="text-yellow-400/80 font-medium whitespace-nowrap">Performance API (реклама):</span>
-        <div className="flex items-center gap-1.5 flex-1 min-w-[160px]">
-          <span className="text-muted-foreground whitespace-nowrap">Client-Id:</span>
-          <input type="text" value={clientId} onChange={e => setClientId(e.target.value)}
-            placeholder="12345"
-            className="flex-1 bg-muted/30 border border-yellow-500/30 px-2 py-1 text-[11px] font-mono outline-none focus:border-yellow-500/60 placeholder:text-muted-foreground/40" />
-        </div>
-        <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
-          <span className="text-muted-foreground whitespace-nowrap">Client-Secret:</span>
-          <div className="relative flex-1">
-            <input type={showSecret ? 'text' : 'password'} value={clientSecret} onChange={e => setClientSecret(e.target.value)}
-              placeholder="xxxxxxxx-xxxx-…"
-              className="w-full bg-muted/30 border border-yellow-500/30 px-2 py-1 pr-7 text-[11px] font-mono outline-none focus:border-yellow-500/60 placeholder:text-muted-foreground/40" />
-            <button onClick={() => setShowSecret(v => !v)}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground">
-              {showSecret ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-            </button>
-          </div>
-        </div>
-        <button onClick={onLoad} disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-600 hover:bg-yellow-500 text-white disabled:opacity-50 transition-colors font-medium text-[11px]">
-          {loading
-            ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" />Загружаю…</>
-            : <><TrendingUp className="w-3.5 h-3.5" />Загрузить рекламу</>
-          }
+        <span className="text-yellow-400/80 font-medium whitespace-nowrap">Реклама:</span>
+
+        {/* Analytics API — uses existing Seller credentials */}
+        {onLoadFromAnalytics && (
+          <button onClick={onLoadFromAnalytics} disabled={loading || !canLoadFromAnalytics}
+            title={!canLoadFromAnalytics ? 'Сначала введите Seller API credentials выше' : 'Загрузить рекламные расходы из Ozon Analytics (adv_sum_all per SKU)'}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-600 hover:bg-yellow-500 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium">
+            {loading
+              ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" />Загружаю…</>
+              : <><TrendingUp className="w-3.5 h-3.5" />Из Analytics API</>
+            }
+          </button>
+        )}
+
+        {/* Performance API toggle */}
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className="flex items-center gap-1 text-muted-foreground hover:text-yellow-400/80 px-2 py-1 border border-yellow-500/20 transition-colors">
+          Performance API
+          {expanded ? <ChevronUp className="w-3 h-3 ml-0.5" /> : <ChevronDown className="w-3 h-3 ml-0.5" />}
         </button>
+
         {hasData && (
-          <button onClick={onClear} className="flex items-center gap-1 text-muted-foreground hover:text-red-400 px-2 py-1 border border-border/50 text-[11px]">
+          <button onClick={onClear} className="flex items-center gap-1 text-muted-foreground hover:text-red-400 px-2 py-1 border border-border/50">
             <Trash2 className="w-3 h-3" /> Сбросить
           </button>
         )}
       </div>
+
+      {/* Performance API credentials — collapsed by default */}
+      {expanded && (
+        <div className="flex items-center gap-3 flex-wrap px-4 pb-2 border-t border-yellow-500/10 pt-2">
+          <span className="text-muted-foreground whitespace-nowrap">Отдельный аккаунт Performance:</span>
+          <div className="flex items-center gap-1.5 flex-1 min-w-[160px]">
+            <span className="text-muted-foreground whitespace-nowrap">Client-Id:</span>
+            <input type="text" value={clientId} onChange={e => setClientId(e.target.value)}
+              placeholder="12345"
+              className="flex-1 bg-muted/30 border border-yellow-500/30 px-2 py-1 text-[11px] font-mono outline-none focus:border-yellow-500/60 placeholder:text-muted-foreground/40" />
+          </div>
+          <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
+            <span className="text-muted-foreground whitespace-nowrap">Client-Secret:</span>
+            <div className="relative flex-1">
+              <input type={showSecret ? 'text' : 'password'} value={clientSecret} onChange={e => setClientSecret(e.target.value)}
+                placeholder="xxxxxxxx-xxxx-…"
+                className="w-full bg-muted/30 border border-yellow-500/30 px-2 py-1 pr-7 text-[11px] font-mono outline-none focus:border-yellow-500/60 placeholder:text-muted-foreground/40" />
+              <button onClick={() => setShowSecret(v => !v)}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground">
+                {showSecret ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+              </button>
+            </div>
+          </div>
+          <button onClick={onLoad} disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-700 hover:bg-yellow-600 text-white disabled:opacity-50 transition-colors font-medium">
+            {loading
+              ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" />Загружаю…</>
+              : <><TrendingUp className="w-3.5 h-3.5" />Загрузить</>
+            }
+          </button>
+        </div>
+      )}
+
       {error && (
-        <div className="mt-1.5 flex items-center gap-2 text-red-400 border border-red-400/20 bg-red-400/5 px-3 py-1">
+        <div className="mx-4 mb-2 flex items-center gap-2 text-red-400 border border-red-400/20 bg-red-400/5 px-3 py-1">
           <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /><span>{error}</span>
         </div>
       )}
@@ -462,13 +496,18 @@ function PerfApiBar({ clientId, setClientId, clientSecret, setClientSecret,
 }
 
 // ─── Campaigns panel ──────────────────────────────────────────────────────────
-function CampaignsPanel({ campaigns, spendByArticle, onClear }: {
+function CampaignsPanel({ campaigns, spendByArticle, source, totalSpend: totalSpendProp, onClear }: {
   campaigns: PerfCampaign[];
   spendByArticle: Record<string, number>;
+  source?: 'performance' | 'analytics';
+  totalSpend?: number;
   onClear: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const totalSpend   = campaigns.reduce((s, c) => s + c.moneySpent, 0);
+  const isAnalytics  = source === 'analytics' || campaigns.length === 0;
+  const totalSpend   = isAnalytics
+    ? (totalSpendProp ?? Object.values(spendByArticle).reduce((s, v) => s + v, 0))
+    : campaigns.reduce((s, c) => s + c.moneySpent, 0);
   const totalRevenue = campaigns.reduce((s, c) => s + c.revenue, 0);
   const totalOrders  = campaigns.reduce((s, c) => s + c.orders, 0);
   const totalDrr     = totalRevenue > 0 ? (totalSpend / totalRevenue) * 100 : 0;
@@ -477,23 +516,37 @@ function CampaignsPanel({ campaigns, spendByArticle, onClear }: {
   return (
     <div className="flex-none border-b border-yellow-500/20 bg-yellow-500/5">
       <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] cursor-pointer hover:bg-yellow-500/10"
-        onClick={() => setExpanded(v => !v)}>
+        onClick={() => !isAnalytics && setExpanded(v => !v)}>
         <Megaphone className="w-3.5 h-3.5 text-yellow-400/80 flex-shrink-0" />
-        <span className="font-medium text-yellow-400/80">Performance API</span>
+        <span className="font-medium text-yellow-400/80">
+          {isAnalytics ? 'Реклама (Analytics API)' : 'Performance API'}
+        </span>
         <span className="text-muted-foreground">
-          {campaigns.length} {campaigns.length === 1 ? 'кампания' : campaigns.length < 5 ? 'кампании' : 'кампаний'}
-          {' · '}-{formatCurrency(totalSpend)}
-          {' · '}ДРР {totalDrr > 0 ? `${totalDrr.toFixed(1)}%` : '—'}
-          {totalOrders > 0 && ` · ${formatNumber(totalOrders)} заказов`}
-          {skuCount > 0 && ` · ${skuCount} SKU`}
+          {isAnalytics
+            ? <>
+                {skuCount > 0 && `${skuCount} SKU`}
+                {totalSpend > 0 && ` · -${formatCurrency(totalSpend)}`}
+                {' · '}расходы на рекламу
+              </>
+            : <>
+                {campaigns.length} {campaigns.length === 1 ? 'кампания' : campaigns.length < 5 ? 'кампании' : 'кампаний'}
+                {' · '}-{formatCurrency(totalSpend)}
+                {' · '}ДРР {totalDrr > 0 ? `${totalDrr.toFixed(1)}%` : '—'}
+                {totalOrders > 0 && ` · ${formatNumber(totalOrders)} заказов`}
+                {skuCount > 0 && ` · ${skuCount} SKU`}
+              </>
+          }
         </span>
         <div className="flex-1" />
         <button onClick={e => { e.stopPropagation(); onClear(); }}
           className="text-muted-foreground/40 hover:text-red-400 px-1 text-xs" title="Сбросить рекламные данные">✕</button>
-        {expanded ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground/50" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground/50" />}
+        {!isAnalytics && (expanded
+          ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground/50" />
+          : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground/50" />
+        )}
       </div>
 
-      {expanded && (
+      {!isAnalytics && expanded && (
         <div className="border-t border-yellow-500/20 overflow-x-auto">
           <table className="w-full text-[11px] border-collapse">
             <thead>
@@ -869,6 +922,8 @@ function OzonTabContent({ mp, api }: {
             hasData={!!perfApi.report}
             onLoad={() => perfApi.load(perfDateFrom, perfDateTo)}
             onClear={perfApi.clear}
+            onLoadFromAnalytics={() => perfApi.loadFromAnalytics(api.clientId, api.apiKey, perfDateFrom, perfDateTo)}
+            canLoadFromAnalytics={!!(api.clientId.trim() && api.apiKey.trim())}
           />
         )}
 
@@ -893,6 +948,8 @@ function OzonTabContent({ mp, api }: {
               <CampaignsPanel
                 campaigns={perfApi.report.campaigns}
                 spendByArticle={perfApi.report.spendByArticle}
+                source={perfApi.report.source}
+                totalSpend={perfApi.report.totalSpend}
                 onClear={perfApi.clear}
               />
             )}
