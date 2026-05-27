@@ -361,9 +361,9 @@ router.post("/ozon/performance-report", async (req, res) => {
         const uuid = createData.UUID;
         req.log.info({ uuid, chunk: chunk.slice(0, 3) }, "perf stats task created");
 
-        // Step B: poll until ready (max ~30 s)
+        // Step B: poll until ready (max ~60 s)
         let ready = false;
-        for (let attempt = 0; attempt < 15; attempt++) {
+        for (let attempt = 0; attempt < 30; attempt++) {
           await sleep(2_000);
           const pollResp = await fetch(`${PERF_BASE}/api/client/statistics/${uuid}`, {
             headers: { Authorization: auth },
