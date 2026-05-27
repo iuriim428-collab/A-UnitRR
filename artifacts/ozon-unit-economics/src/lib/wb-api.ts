@@ -149,6 +149,12 @@ async function fetchAllPagesFrom(
   return allRows;
 }
 
+// ─── Detect Electron desktop environment ─────────────────────────────────────
+
+function isElectron(): boolean {
+  return typeof window !== 'undefined' && 'electronApp' in window;
+}
+
 // ─── Main fetch with fallback chain ──────────────────────────────────────────
 
 export async function fetchWBReport(
@@ -159,22 +165,25 @@ export async function fetchWBReport(
 ): Promise<{ rows: WBDetailRow[]; method: WBFetchMethod }> {
 
   // ── Strategy 1: Browser-direct (user's own IP, 5 s timeout) ────────────
-  // TypeError  = CORS blocked (WB doesn't allow cross-origin)
-  // AbortError = CORS preflight hung / network timeout
-  // Both mean "can't use browser-direct" → fall through to next strategy
-  try {
-    const rows = await fetchAllPagesFrom(
-      WB_STAT_DIRECT,
-      { Authorization: token },
-      dateFrom, dateTo, onProgress,
-      5_000, // 5 s — if WB doesn't respond to CORS preflight, give up quickly
-    );
-    return { rows, method: 'browser' };
-  } catch (err) {
-    const isFallthrough = err instanceof TypeError ||
-      (err instanceof DOMException && err.name === 'AbortError') ||
-      (err instanceof DOMException && err.name === 'TimeoutError');
-    if (!isFallthrough) throw err; // Real WB error (401, 429…) → surface to user
+  // Skipped in Electron: Electron doesn't enforce CORS so the request goes
+  // through but WB may reject it differently than a server-side request.
+  // In desktop mode the local Express server (localhost) is already on the
+  // user's machine, so server-proxy is equivalent and more reliable.
+  if (!isElectron()) {
+    try {
+      const rows = await fetchAllPagesFrom(
+        WB_STAT_DIRECT,
+        { Authorization: token },
+        dateFrom, dateTo, onProgress,
+        5_000, // 5 s — if WB doesn't respond to CORS preflight, give up quickly
+      );
+      return { rows, method: 'browser' };
+    } catch (err) {
+      const isFallthrough = err instanceof TypeError ||
+        (err instanceof DOMException && err.name === 'AbortError') ||
+        (err instanceof DOMException && err.name === 'TimeoutError');
+      if (!isFallthrough) throw err; // Real WB error (401, 429…) → surface to user
+    }
   }
 
   // ── Strategy 2: Local proxy (user runs local-wb-proxy.mjs) ───────────────
