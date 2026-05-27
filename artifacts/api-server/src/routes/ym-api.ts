@@ -16,9 +16,9 @@ async function curlPost(
   authToken: string,
   body: unknown,
 ): Promise<unknown> {
-  // Yandex Market accepts OAuth tokens (y0_Ag... / Ag...) with "OAuth" prefix,
-  // and IAM/service-account tokens (ACMA:...) with "Bearer" prefix.
-  const authScheme = authToken.startsWith("ACMA:") ? "Bearer" : "OAuth";
+  // Yandex Market Partner API always uses "OAuth" scheme regardless of token format.
+  // Tokens may look like y0_Ag..., AQ..., or ACMA:... — all sent with OAuth prefix.
+  const authScheme = "OAuth";
 
   const { stdout } = await execFileAsync("curl", [
     "-s",
@@ -131,7 +131,7 @@ router.post("/ym/report", async (req, res) => {
     req.log.error({ err }, "ym fetch error");
 
     if (e.statusCode === 401 || e.statusCode === 403) {
-      res.status(e.statusCode).json({ error: `Неверный OAuth-токен ЯМ (${e.statusCode}). Проверьте токен в настройках партнёра.` });
+      res.status(e.statusCode).json({ error: `Неверный OAuth-токен (${e.statusCode}). Нужен токен с правом market:partner-api — получите на oauth.yandex.ru (не Application Password и не IAM-токен).` });
     } else if (e.statusCode) {
       res.status(e.statusCode).json({ error: e.message });
     } else {
