@@ -381,33 +381,76 @@ router.post("/ozon/performance-report", async (req, res) => {
             "perf stats poll"
           );
           if (isReady) {
-            // The statistics may be nested in several different ways; try them all.
             type StatEntry = Record<string, unknown>;
-            const raw = pollData as {
-              statistics?: StatEntry[] | { sku?: StatEntry[]; banner?: StatEntry[] };
-              list?: StatEntry[];
-              result?: StatEntry[];
-              rows?: StatEntry[];
-              report?: StatEntry[] | { statistics?: StatEntry[] };
-              data?: StatEntry[];
-            };
-
             let entries: StatEntry[] = [];
-            if (Array.isArray(raw.statistics))          entries = raw.statistics;
-            else if (raw.statistics && typeof raw.statistics === "object") {
-              const nested = raw.statistics as { sku?: StatEntry[]; banner?: StatEntry[] };
-              entries = [...(nested.sku ?? []), ...(nested.banner ?? [])];
-            } else if (Array.isArray(raw.list))         entries = raw.list;
-            else if (Array.isArray(raw.result))         entries = raw.result;
-            else if (Array.isArray(raw.rows))           entries = raw.rows;
-            else if (Array.isArray(raw.data))           entries = raw.data;
-            else if (Array.isArray(raw.report))         entries = raw.report as StatEntry[];
-            else if (raw.report && typeof raw.report === "object") {
-              const r = raw.report as { statistics?: StatEntry[] };
-              entries = r.statistics ?? [];
+
+            // When state=OK, Ozon puts data at a separate report URL (pollData.link).
+            const reportLink = String(pollData.link ?? "");
+            if (reportLink) {
+              try {
+                const reportUrl = reportLink.startsWith("http")
+                  ? reportLink
+                  : `${PERF_BASE}${reportLink}`;
+                const reportResp = await fetch(reportUrl, {
+                  headers: { Authorization: auth },
+                  signal: AbortSignal.timeout(15_000),
+                });
+                const contentType = reportResp.headers.get("content-type") ?? "";
+                const reportText  = await reportResp.text();
+                req.log.info(
+                  { uuid, status: reportResp.status, contentType, preview: reportText.slice(0, 1000) },
+                  "perf stats report fetched"
+                );
+
+                try {
+                  const reportData = JSON.parse(reportText) as Record<string, unknown>;
+                  if (Array.isArray(reportData))
+                    entries = reportData as StatEntry[];
+                  else if (Array.isArray(reportData.statistics))
+                    entries = reportData.statistics as StatEntry[];
+                  else if (Array.isArray(reportData.list))
+                    entries = reportData.list as StatEntry[];
+                  else if (Array.isArray(reportData.result))
+                    entries = reportData.result as StatEntry[];
+                  else if (Array.isArray(reportData.rows))
+                    entries = reportData.rows as StatEntry[];
+                  else if (reportData.statistics && typeof reportData.statistics === "object") {
+                    const nested = reportData.statistics as { sku?: StatEntry[]; banner?: StatEntry[] };
+                    entries = [...(nested.sku ?? []), ...(nested.banner ?? [])];
+                  } else {
+                    // Log all top-level keys if we still don't find entries
+                    req.log.info({ uuid, reportKeys: Object.keys(reportData) }, "perf stats report unknown shape");
+                  }
+                } catch {
+                  req.log.info({ uuid, note: "report is not JSON, raw preview above" }, "perf stats report not JSON");
+                }
+              } catch (e) {
+                req.log.warn({ uuid, err: e }, "perf stats report fetch error");
+              }
+            } else {
+              // Fallback: try to extract from polling response body directly
+              const raw = pollData as {
+                statistics?: StatEntry[] | { sku?: StatEntry[]; banner?: StatEntry[] };
+                list?: StatEntry[];
+                result?: StatEntry[];
+                rows?: StatEntry[];
+                data?: StatEntry[];
+              };
+              if (Array.isArray(raw.statistics))
+                entries = raw.statistics;
+              else if (raw.statistics && typeof raw.statistics === "object") {
+                const nested = raw.statistics as { sku?: StatEntry[]; banner?: StatEntry[] };
+                entries = [...(nested.sku ?? []), ...(nested.banner ?? [])];
+              } else if (Array.isArray(raw.list))   entries = raw.list;
+              else if (Array.isArray(raw.result))   entries = raw.result;
+              else if (Array.isArray(raw.rows))     entries = raw.rows;
+              else if (Array.isArray(raw.data))     entries = raw.data;
             }
 
-            req.log.info({ uuid, entriesFound: entries.length, sample: JSON.stringify(entries[0] ?? {}).slice(0, 300) }, "perf stats ready");
+            req.log.info(
+              { uuid, entriesFound: entries.length, sample: JSON.stringify(entries[0] ?? {}).slice(0, 400) },
+              "perf stats ready"
+            );
             for (const s of entries) {
               const sid = String((s as PerfStatRaw).id ?? "");
               if (sid) statsMap.set(sid, s as PerfStatRaw);
