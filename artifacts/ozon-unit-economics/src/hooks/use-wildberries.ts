@@ -3,8 +3,8 @@ import { OzonReportRow, SkuCost, TaxSettings, CalculatedRow, ReportSummary } fro
 import {
   fetchWBReport, parseWBRows,
   fetchWBAnalytics, fetchWBAdvert,
-  buildAnalyticsMap, mergeAdvertSpend,
-  WBAnalyticsItem, WBDetailRow,
+  buildAnalyticsMap,
+  WBAnalyticsItem, WBFetchMethod,
 } from '../lib/wb-api';
 import { calcRow, calcSummary } from '../lib/calculator';
 
@@ -36,15 +36,18 @@ export function useWildberries(tax: TaxSettings, setTax: (t: TaxSettings) => voi
   const [error, setError]         = useState<string | null>(null);
   const [rowCount, setRowCount]   = useState<number | null>(null);
 
-  // Analytics state
-  const [analytics, setAnalytics]           = useState<Record<string, WBAnalyticsItem>>({});
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
-  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  // Which transport was used for the main report
+  const [fetchMethod, setFetchMethod] = useState<WBFetchMethod | null>(null);
 
-  // Advert state (ad spend per nm_id → merged into promotion)
+  // Analytics state
+  const [analytics, setAnalytics]                   = useState<Record<string, WBAnalyticsItem>>({});
+  const [analyticsLoading, setAnalyticsLoading]     = useState(false);
+  const [analyticsError, setAnalyticsError]         = useState<string | null>(null);
+
+  // Advert state
   const [advertSpendByArticle, setAdvertSpendByArticle] = useState<Record<string, number>>({});
-  const [advertLoading, setAdvertLoading]   = useState(false);
-  const [advertError, setAdvertError]       = useState<string | null>(null);
+  const [advertLoading, setAdvertLoading]               = useState(false);
+  const [advertError, setAdvertError]                   = useState<string | null>(null);
 
   // Tokens
   const [token, setTokenState] = useState<string>(
@@ -100,7 +103,7 @@ export function useWildberries(tax: TaxSettings, setTax: (t: TaxSettings) => voi
     setCosts(prev => ({ ...prev, [article]: { ...(prev[article] ?? DEFAULT_COST), [field]: value } }));
   }, []);
 
-  // ── Fetch analytics (called after main report if token provided) ─────────────
+  // ── Fetch analytics ──────────────────────────────────────────────────────────
   const loadAnalytics = useCallback(async (
     tok: string,
     currentNmMap: Map<number, string>,
@@ -114,13 +117,13 @@ export function useWildberries(tax: TaxSettings, setTax: (t: TaxSettings) => voi
       const cards = await fetchWBAnalytics(tok.trim(), df, dt);
       setAnalytics(buildAnalyticsMap(cards, currentNmMap));
     } catch (e) {
-      setAnalyticsError(e instanceof Error ? e.message : 'Ошибка загрузки аналитики');
+      setAnalyticsError(e instanceof Error ? e.message : 'Ошибка аналитики');
     } finally {
       setAnalyticsLoading(false);
     }
   }, []);
 
-  // ── Fetch advert (called after main report if token provided) ────────────────
+  // ── Fetch advert ─────────────────────────────────────────────────────────────
   const loadAdvert = useCallback(async (
     tok: string,
     currentNmMap: Map<number, string>,
@@ -140,7 +143,7 @@ export function useWildberries(tax: TaxSettings, setTax: (t: TaxSettings) => voi
       }
       setAdvertSpendByArticle(spendByArticle);
     } catch (e) {
-      setAdvertError(e instanceof Error ? e.message : 'Ошибка загрузки рекламы');
+      setAdvertError(e instanceof Error ? e.message : 'Ошибка рекламы');
     } finally {
       setAdvertLoading(false);
     }
@@ -151,13 +154,19 @@ export function useWildberries(tax: TaxSettings, setTax: (t: TaxSettings) => voi
     if (!token.trim()) { setError('Введите API-токен'); return; }
     setLoading(true);
     setError(null);
+    setFetchMethod(null);
     setAnalytics({});
     setAdvertSpendByArticle({});
     setAnalyticsError(null);
     setAdvertError(null);
 
     try {
-      const raw = await fetchWBReport(token.trim(), dateFrom, dateTo, count => setRowCount(count));
+      const { rows: raw, method } = await fetchWBReport(
+        token.trim(), dateFrom, dateTo,
+        count => setRowCount(count),
+      );
+
+      setFetchMethod(method);
       const { rows: parsed, nmMap: newNmMap } = parseWBRows(raw);
 
       setBaseRows(parsed);
@@ -167,7 +176,6 @@ export function useWildberries(tax: TaxSettings, setTax: (t: TaxSettings) => voi
       if (parsed.length === 0) {
         setError('Нет данных за выбранный период');
       } else {
-        // Auto-fetch analytics and advert in parallel if tokens provided
         const analyticsTok = analyticsToken.trim() || token.trim();
         const advertTok    = advertToken.trim()    || token.trim();
 
@@ -191,6 +199,7 @@ export function useWildberries(tax: TaxSettings, setTax: (t: TaxSettings) => voi
     setError(null);
     setRowCount(null);
     setFilter('all');
+    setFetchMethod(null);
     setAnalytics({});
     setAdvertSpendByArticle({});
     setAnalyticsError(null);
@@ -199,6 +208,15 @@ export function useWildberries(tax: TaxSettings, setTax: (t: TaxSettings) => voi
 
   const hasAnalytics = Object.keys(analytics).length > 0;
   const hasAdvert    = Object.keys(advertSpendByArticle).length > 0;
+
+  // Human-readable connection method label
+  const methodLabel: string | null = fetchMethod === 'browser'
+    ? '🌐 Прямое соединение (ваш IP)'
+    : fetchMethod === 'proxy'
+    ? '🟢 Локальный прокси'
+    : fetchMethod === 'server'
+    ? '☁️ Через облако'
+    : null;
 
   return {
     rows, calculatedRows, summary, costs,
@@ -216,6 +234,7 @@ export function useWildberries(tax: TaxSettings, setTax: (t: TaxSettings) => voi
     dateFrom, setDateFrom,
     dateTo,   setDateTo,
     rowCount,
+    fetchMethod, methodLabel,
     loadReport, clear, updateCost,
   };
 }

@@ -1,8 +1,12 @@
 /**
  * Wildberries API clients + parsers.
  *
- * Statistics: request priority — local proxy → server proxy (cloud may be blocked by WB).
- * Analytics and Advertising: server proxy only (seller-analytics / advert-api).
+ * Priority for WB Statistics (IP-sensitive):
+ *   1. Browser-direct  — uses the user's own IP (works if WB allows CORS)
+ *   2. Local proxy     — user runs local-wb-proxy.mjs on their machine
+ *   3. Server proxy    — cloud IP (likely blocked by WB, shows clear error)
+ *
+ * Analytics and Advertising APIs: server proxy only.
  */
 import { OzonReportRow } from '../types';
 
@@ -35,10 +39,10 @@ export interface WBDetailRow {
 /** Per-SKU analytics from seller-analytics.wildberries.ru */
 export interface WBAnalyticsCard {
   nmID: number;
-  vendorCode: string;            // seller article
+  vendorCode: string;
   statistics?: {
     selectedPeriod?: {
-      openCardCount: number;     // card views
+      openCardCount: number;
       addToCartCount: number;
       ordersCount: number;
       ordersSumRub: number;
@@ -46,9 +50,9 @@ export interface WBAnalyticsCard {
       buyoutsSumRub: number;
     };
     periodComparison?: {
-      addToCartConversion: number; // % of views → cart
+      addToCartConversion: number;
       cartToOrderConversion: number;
-      buyoutsPercent: number;      // % of orders actually paid
+      buyoutsPercent: number;
     };
   };
 }
@@ -56,18 +60,24 @@ export interface WBAnalyticsCard {
 /** Ad spend per nm_id from advert-api.wildberries.ru */
 export interface WBAdvertItem {
   nmId: number;
-  spend: number;  // RUB
+  spend: number;
 }
 
-// ─── Derived analytics type (keyed by article) ────────────────────────────────
 export interface WBAnalyticsItem {
   openCardCount: number;
-  addToCartConversion: number;  // %
-  buyoutsPercent: number;       // %
+  addToCartConversion: number;
+  buyoutsPercent: number;
 }
 
-// ─── Local proxy ──────────────────────────────────────────────────────────────
-const LOCAL_PROXY = 'http://localhost:3001';
+/** Which transport was used to load the WB report */
+export type WBFetchMethod = 'browser' | 'proxy' | 'server';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const WB_STAT_DIRECT    = 'https://statistics-api.wildberries.ru';
+const LOCAL_PROXY       = 'http://localhost:3001';
+
+// ─── Local proxy health check ─────────────────────────────────────────────────
 
 export async function isLocalProxyAvailable(): Promise<boolean> {
   try {
@@ -80,11 +90,40 @@ export async function isLocalProxyAvailable(): Promise<boolean> {
   }
 }
 
-// ─── Statistics fetch ─────────────────────────────────────────────────────────
+// ─── WB Statistics: browser-direct (uses user's IP) ─────────────────────────
 
-async function fetchAllPages(
-  baseUrl: string,
-  headers: Record<string, string>,
+async function fetchStatPage(
+  base: string,
+  authHeader: Record<string, string>,
+  dateFrom: string,
+  dateTo: string,
+  rrdid: number,
+): Promise<WBDetailRow[]> {
+  const qs = `?dateFrom=${dateFrom}&dateTo=${dateTo}&limit=100000${rrdid ? `&rrdid=${rrdid}` : ''}`;
+  // Browser-direct calls the WB endpoint path directly; proxy/server use /api/wb/report
+  const path = base === WB_STAT_DIRECT
+    ? `/api/v5/supplier/reportDetailByPeriod${qs}`
+    : `/api/wb/report${qs}`;
+  const url = `${base}${path}`;
+
+  const resp = await fetch(url, { headers: authHeader });
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => resp.statusText);
+    // Try to parse JSON error
+    try {
+      const json = JSON.parse(body) as { error?: string };
+      if (json.error) throw new Error(json.error);
+    } catch {}
+    throw new Error(`WB ${resp.status}: ${body}`);
+  }
+
+  return resp.json() as Promise<WBDetailRow[]>;
+}
+
+async function fetchAllPagesFrom(
+  base: string,
+  authHeader: Record<string, string>,
   dateFrom: string,
   dateTo: string,
   onProgress?: (rows: number) => void,
@@ -93,18 +132,7 @@ async function fetchAllPages(
   let rrdid = 0;
 
   while (true) {
-    const url =
-      `${baseUrl}/api/wb/report?dateFrom=${dateFrom}&dateTo=${dateTo}` +
-      (rrdid ? `&rrdid=${rrdid}` : '');
-
-    const resp = await fetch(url, { headers });
-
-    if (!resp.ok) {
-      const body = await resp.json().catch(() => ({ error: resp.statusText }));
-      throw new Error(body?.error ?? `HTTP ${resp.status}`);
-    }
-
-    const page = (await resp.json()) as WBDetailRow[];
+    const page = await fetchStatPage(base, authHeader, dateFrom, dateTo, rrdid);
     if (!Array.isArray(page) || page.length === 0) break;
 
     allRows.push(...page);
@@ -118,31 +146,58 @@ async function fetchAllPages(
   return allRows;
 }
 
+// ─── Main fetch with fallback chain ──────────────────────────────────────────
+
 export async function fetchWBReport(
   token: string,
   dateFrom: string,
   dateTo: string,
   onProgress?: (rows: number) => void,
-): Promise<WBDetailRow[]> {
-  const localAvailable = await isLocalProxyAvailable();
-  if (localAvailable) {
-    return fetchAllPages(LOCAL_PROXY, { 'X-WB-Token': token }, dateFrom, dateTo, onProgress);
+): Promise<{ rows: WBDetailRow[]; method: WBFetchMethod }> {
+
+  // ── Strategy 1: Browser-direct (user's own IP) ───────────────────────────
+  try {
+    const rows = await fetchAllPagesFrom(
+      WB_STAT_DIRECT,
+      { Authorization: token },
+      dateFrom, dateTo, onProgress,
+    );
+    return { rows, method: 'browser' };
+  } catch (err) {
+    // TypeError = CORS blocked or network error → try fallbacks
+    // Any other error (401, 429, etc.) = real WB error → surface to user
+    if (!(err instanceof TypeError)) throw err;
   }
 
+  // ── Strategy 2: Local proxy (user runs local-wb-proxy.mjs) ───────────────
+  try {
+    const localAvailable = await isLocalProxyAvailable();
+    if (localAvailable) {
+      const rows = await fetchAllPagesFrom(
+        LOCAL_PROXY,
+        { 'X-WB-Token': token },
+        dateFrom, dateTo, onProgress,
+      );
+      return { rows, method: 'proxy' };
+    }
+  } catch (err) {
+    // If local proxy is up but fails (e.g. auth error), surface the error
+    if (!(err instanceof TypeError)) throw err;
+  }
+
+  // ── Strategy 3: Server proxy (cloud IP, likely blocked — shows clear msg) ─
   const url = `/api/wb/report?dateFrom=${dateFrom}&dateTo=${dateTo}`;
   const resp = await fetch(url, { headers: { 'X-WB-Token': token } });
-
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({ error: resp.statusText }));
-    throw new Error(body?.error ?? `HTTP ${resp.status}`);
+    throw new Error((body as { error?: string })?.error ?? `HTTP ${resp.status}`);
   }
-
   const rows = (await resp.json()) as WBDetailRow[];
   onProgress?.(rows.length);
-  return rows;
+  return { rows, method: 'server' };
 }
 
-// ─── Analytics fetch ──────────────────────────────────────────────────────────
+// ─── Analytics fetch (server proxy) ──────────────────────────────────────────
 
 export async function fetchWBAnalytics(
   token: string,
@@ -155,12 +210,12 @@ export async function fetchWBAnalytics(
   );
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({ error: resp.statusText }));
-    throw new Error(body?.error ?? `HTTP ${resp.status}`);
+    throw new Error((body as { error?: string })?.error ?? `HTTP ${resp.status}`);
   }
   return resp.json() as Promise<WBAnalyticsCard[]>;
 }
 
-// ─── Advertising fetch ────────────────────────────────────────────────────────
+// ─── Advertising fetch (server proxy) ────────────────────────────────────────
 
 export async function fetchWBAdvert(
   token: string,
@@ -173,7 +228,7 @@ export async function fetchWBAdvert(
   );
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({ error: resp.statusText }));
-    throw new Error(body?.error ?? `HTTP ${resp.status}`);
+    throw new Error((body as { error?: string })?.error ?? `HTTP ${resp.status}`);
   }
   return resp.json() as Promise<WBAdvertItem[]>;
 }
@@ -184,12 +239,10 @@ export function parseWBRows(
   raw: WBDetailRow[],
 ): { rows: OzonReportRow[]; nmMap: Map<number, string> } {
   const acc: Record<string, OzonReportRow> = {};
-  const nmMap = new Map<number, string>(); // nmId → article
+  const nmMap = new Map<number, string>();
 
   for (const row of raw) {
     const article = (row.sa_name || row.barcode || String(row.nm_id) || 'unknown').trim();
-
-    // Build nm_id → article mapping for later advert merge
     if (row.nm_id) nmMap.set(row.nm_id, article);
 
     if (!acc[article]) {
@@ -250,14 +303,12 @@ export function parseWBRows(
 
 // ─── Merge helpers ────────────────────────────────────────────────────────────
 
-/** Build article → WBAnalyticsItem map from analytics cards. */
 export function buildAnalyticsMap(
   cards: WBAnalyticsCard[],
   nmMap: Map<number, string>,
 ): Record<string, WBAnalyticsItem> {
   const result: Record<string, WBAnalyticsItem> = {};
   for (const card of cards) {
-    // Use vendorCode first; fall back to nm_id lookup via nmMap
     const article = card.vendorCode?.trim() || nmMap.get(card.nmID) || '';
     if (!article) continue;
 
@@ -272,25 +323,20 @@ export function buildAnalyticsMap(
   return result;
 }
 
-/** Merge ad spend into OzonReportRow.promotion using nmId → article map. */
 export function mergeAdvertSpend(
   rows: OzonReportRow[],
   advertItems: WBAdvertItem[],
   nmMap: Map<number, string>,
 ): OzonReportRow[] {
   if (advertItems.length === 0) return rows;
-
-  // Build article → spend map
   const spendByArticle: Record<string, number> = {};
   for (const item of advertItems) {
     const article = nmMap.get(item.nmId);
     if (!article) continue;
     spendByArticle[article] = (spendByArticle[article] ?? 0) + item.spend;
   }
-
   return rows.map(r => {
     const adSpend = spendByArticle[r.article] ?? 0;
-    if (adSpend === 0) return r;
-    return { ...r, promotion: r.promotion + adSpend };
+    return adSpend > 0 ? { ...r, promotion: r.promotion + adSpend } : r;
   });
 }

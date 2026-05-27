@@ -1025,6 +1025,7 @@ function WbTabContent({ wb }: { wb: ReturnType<typeof useWildberries> }) {
           statusLine={wb.rowCount !== null
             ? [
                 `Загружено ${wb.rowCount.toLocaleString('ru')} строк · ${wb.rows.length} SKU`,
+                wb.methodLabel ?? '',
                 wb.analyticsLoading ? '⏳ аналитика…'
                   : wb.analyticsError ? `⚠ аналитика: ${wb.analyticsError}`
                   : wb.hasAnalytics ? `📊 аналитика: ${Object.keys(wb.analytics).length} SKU`
@@ -1035,9 +1036,9 @@ function WbTabContent({ wb }: { wb: ReturnType<typeof useWildberries> }) {
                   : '',
               ].filter(Boolean).join(' · ')
             : localProxy === true
-              ? '🟢 Локальный прокси подключён — запросы идут с вашего IP'
+              ? '🟢 Локальный прокси доступен · автоматически будет использован если нужно'
               : localProxy === false
-                ? '🔴 Локальный прокси не запущен — запросы идут через облако (может блокироваться WB)'
+                ? '🌐 Попробуем прямое соединение с WB (с вашего IP браузера)'
                 : undefined}
           onLoad={wb.loadReport}
           onClear={hasData ? wb.clear : undefined}
