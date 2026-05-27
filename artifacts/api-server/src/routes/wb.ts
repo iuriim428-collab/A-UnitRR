@@ -52,11 +52,14 @@ router.get("/wb/report", async (req, res) => {
         const body = await upstream.text().catch(() => "");
         req.log.warn({ status: upstream.status, body }, "wb api error");
         if (upstream.status === 429) {
-          const isAuthBlock = body.includes("s2s-api-auth-stat") || body.includes("dev.wildberries.ru");
-          if (isAuthBlock) {
+          const isIpBlock = body.includes("s2s-api-auth-stat") || body.includes("dev.wildberries.ru");
+          if (isIpBlock) {
             res.status(429).json({
-              error: "WB изменили аутентификацию Statistics API (новость #281). " +
-                "Создайте новый токен на портале разработчика: dev.wildberries.ru → API-ключи → Статистика.",
+              error: "WB заблокировал запрос с облачного сервера (IP не разрешён). " +
+                "Решение: запустите локальный прокси на своём компьютере командой " +
+                "«node local-wb-proxy.mjs» — тогда запросы пойдут с вашего IP. " +
+                "Статус прокси отображается в строке под токеном (🟢/🔴). " +
+                "Если прокси уже запущен и ошибка остаётся — пересоздайте токен на dev.wildberries.ru (раздел API-ключи → Статистика).",
             });
             return;
           }
