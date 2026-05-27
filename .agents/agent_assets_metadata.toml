@@ -6,3 +6,9 @@ id = "OVY1vn5HVFG_nNGTI1b0_"
 uri = "file://artifacts/desktop/dist-electron/UnitEconomics-win-x64.zip"
 type = "unspecified"
 title = "Unit Economics — Windows x64 (портативная версия)"
+
+[[outputs]]
+id = "Pa6NUvuQ-Rl00G-l9xeDs"
+uri = "file://artifacts/ozon-unit-economics/public/UnitEconomics-win-x64-v2.zip"
+type = "unspecified"
+title = "UnitEconomics-win-x64-v2.zip (Десктоп, новая версия)"
