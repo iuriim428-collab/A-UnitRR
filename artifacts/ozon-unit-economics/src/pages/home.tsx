@@ -13,6 +13,7 @@ import {
   Upload, Download, Trash2, FolderOpen, FileSpreadsheet,
   Pencil, CheckCircle, AlertCircle, RefreshCw, Key, Calendar,
   Eye, EyeOff, Folder, Globe, Megaphone, TrendingUp, ChevronDown, ChevronUp,
+  Search, X,
 } from 'lucide-react';
 
 // ─── ABC analysis ──────────────────────────────────────────────────────────────
@@ -215,124 +216,194 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
   spendByArticle?: Record<string, number>;
   analyticsByArticle?: Record<string, WBAnalyticsItem>;
 }) {
+  const [nameFilter, setNameFilter] = useState('');
+
   const abcMap = useMemo(() => computeAbcMap(rows), [rows]);
-  const hasPerfData     = spendByArticle !== undefined;
-  const hasAnalytics    = analyticsByArticle !== undefined && Object.keys(analyticsByArticle).length > 0;
+  const hasPerfData  = spendByArticle !== undefined;
+  const hasAnalytics = analyticsByArticle !== undefined && Object.keys(analyticsByArticle).length > 0;
+
+  const filteredRows = useMemo(() => {
+    const q = nameFilter.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(r =>
+      r.name.toLowerCase().includes(q) || r.article.toLowerCase().includes(q)
+    );
+  }, [rows, nameFilter]);
+
+  const totalRevenue = useMemo(() =>
+    filteredRows.reduce((s, r) => s + r.netSales, 0), [filteredRows]);
+  const totalProfit = useMemo(() =>
+    filteredRows.reduce((s, r) => s + r.netProfit, 0), [filteredRows]);
 
   const cols = ['ABC','Артикул','Название','Прод.','Возвр.','Ср. цена','Выручка','Комиссия','Доставка','Партнёры','Хранение'];
+
   return (
-    <table className="w-full text-xs border-collapse">
-      <thead className="sticky top-[33px] z-10 bg-card">
-        <tr className="border-b border-border">
-          {cols.map(h => (
-            <th key={h} className={`px-3 py-2 font-medium text-muted-foreground whitespace-nowrap ${h === 'Артикул' || h === 'Название' ? 'text-left' : h === 'ABC' ? 'text-center' : 'text-right'}`}>{h}</th>
-          ))}
-          {hasPerfData && (
-            <th className="text-right px-3 py-2 font-medium whitespace-nowrap">
-              <span className="text-yellow-400/80 flex items-center justify-end gap-1">
-                <Megaphone className="w-2.5 h-2.5" />ДРР%
-              </span>
-            </th>
-          )}
-          {hasAnalytics && (
-            <>
+    <>
+      {/* ── Name filter bar ── */}
+      <div className="sticky top-0 z-20 bg-card border-b border-border/50 px-3 py-1.5 flex items-center gap-2">
+        <Search className="w-3.5 h-3.5 text-muted-foreground/50 flex-shrink-0" />
+        <input
+          type="text"
+          value={nameFilter}
+          onChange={e => setNameFilter(e.target.value)}
+          placeholder="Фильтр по названию или артикулу…"
+          className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/40"
+        />
+        {nameFilter && (
+          <button
+            onClick={() => setNameFilter('')}
+            className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-foreground transition-colors"
+          >
+            <X className="w-3 h-3" />
+            {filteredRows.length} из {rows.length}
+          </button>
+        )}
+        {!nameFilter && rows.length > 0 && (
+          <span className="text-[10px] text-muted-foreground/40">{rows.length} SKU</span>
+        )}
+      </div>
+
+      <table className="w-full text-xs border-collapse">
+        <thead className="sticky top-[33px] z-10 bg-card">
+          <tr className="border-b border-border">
+            {cols.map(h => (
+              <th key={h} className={`px-3 py-2 font-medium text-muted-foreground whitespace-nowrap ${h === 'Артикул' || h === 'Название' ? 'text-left' : h === 'ABC' ? 'text-center' : 'text-right'}`}>{h}</th>
+            ))}
+            {hasPerfData && (
               <th className="text-right px-3 py-2 font-medium whitespace-nowrap">
-                <span className="text-sky-400/80 flex items-center justify-end gap-1">
-                  <Eye className="w-2.5 h-2.5" />Просм.
+                <span className="text-yellow-400/80 flex items-center justify-end gap-1">
+                  <Megaphone className="w-2.5 h-2.5" />ДРР%
                 </span>
               </th>
-              <th className="text-right px-3 py-2 font-medium whitespace-nowrap">
-                <span className="text-sky-400/80">В корз.%</span>
-              </th>
-              <th className="text-right px-3 py-2 font-medium whitespace-nowrap">
-                <span className="text-sky-400/80">Выкуп%</span>
-              </th>
-            </>
-          )}
-          <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">
-            <span className="flex items-center justify-end gap-1">Себест. <Pencil className="w-2.5 h-2.5 text-primary/60" /></span>
-          </th>
-          {['Налог','Прибыль','Маржа','Приб./шт'].map(h => (
-            <th key={h} className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, idx) => {
-          const isEditing = editingArticle === row.article;
-          const c   = costs[row.article] ?? { costPerUnit: 0, vatRate: 0 };
-          const abc = abcMap.get(row.article);
-          const perfSpend = hasPerfData ? (spendByArticle?.[row.article] ?? 0) : 0;
-          const perfDrr   = (hasPerfData && perfSpend > 0 && row.netSales > 0) ? (perfSpend / row.netSales) * 100 : 0;
-          return (
-            <tr key={row.article} className={`border-b border-border/30 hover:bg-muted/20 ${idx % 2 ? 'bg-muted/5' : ''}`}>
-              <td className="px-2 py-1.5 text-center">
-                {abc && (
-                  <span className={`inline-block w-5 text-center text-[10px] font-bold leading-5 ${ABC_STYLE[abc]}`}>
-                    {abc}
+            )}
+            {hasAnalytics && (
+              <>
+                <th className="text-right px-3 py-2 font-medium whitespace-nowrap">
+                  <span className="text-sky-400/80 flex items-center justify-end gap-1">
+                    <Eye className="w-2.5 h-2.5" />Просм.
                   </span>
-                )}
-              </td>
-              <td className="px-3 py-1.5 font-medium text-primary/80 whitespace-nowrap">{row.article}</td>
-              <td className="px-3 py-1.5 text-muted-foreground max-w-[160px] truncate" title={row.name}>{row.name}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(row.salesCount)}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums text-red-400/70">{row.returnsCount > 0 ? formatNumber(row.returnsCount) : '—'}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.avgPrice > 0 ? formatCurrency(row.avgPrice) : '—'}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums font-medium">{formatCurrency(row.netSales)}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums text-orange-400/80">{row.ozonCommission > 0 ? `-${formatCurrency(row.ozonCommission)}` : '—'}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums text-blue-400/80">{row.deliveryServices > 0 ? `-${formatCurrency(row.deliveryServices)}` : '—'}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums text-purple-400/80">{row.agentServices > 0 ? `-${formatCurrency(row.agentServices)}` : '—'}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums text-cyan-400/80">{(row.storage + row.fboServices) > 0 ? `-${formatCurrency(row.storage + row.fboServices)}` : '—'}</td>
-              {hasPerfData && (
-                <td className="px-3 py-1.5 text-right tabular-nums">
-                  {perfDrr > 0
-                    ? <span className={perfDrr > 30 ? 'text-red-400' : perfDrr > 15 ? 'text-yellow-400' : 'text-green-400/80'}>
-                        {perfDrr.toFixed(1)}%
-                      </span>
-                    : <span className="text-muted-foreground/30">—</span>
-                  }
+                </th>
+                <th className="text-right px-3 py-2 font-medium whitespace-nowrap">
+                  <span className="text-sky-400/80">В корз.%</span>
+                </th>
+                <th className="text-right px-3 py-2 font-medium whitespace-nowrap">
+                  <span className="text-sky-400/80">Выкуп%</span>
+                </th>
+              </>
+            )}
+            <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">
+              <span className="flex items-center justify-end gap-1">Себест. <Pencil className="w-2.5 h-2.5 text-primary/60" /></span>
+            </th>
+            {['Налог','Прибыль'].map(h => (
+              <th key={h} className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
+            ))}
+            <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Маржа</th>
+            <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap" title="Прибыль / Себестоимость × 100%">
+              <span className="text-emerald-400/80">М/закуп.</span>
+            </th>
+            <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Приб./шт</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filteredRows.map((row, idx) => {
+            const isEditing = editingArticle === row.article;
+            const c   = costs[row.article] ?? { costPerUnit: 0, vatRate: 0 };
+            const abc = abcMap.get(row.article);
+            const perfSpend = hasPerfData ? (spendByArticle?.[row.article] ?? 0) : 0;
+            const perfDrr   = (hasPerfData && perfSpend > 0 && row.netSales > 0) ? (perfSpend / row.netSales) * 100 : 0;
+            const costMargin = row.costTotal > 0 ? (row.netProfit / row.costTotal) * 100 : null;
+            return (
+              <tr key={row.article} className={`border-b border-border/30 hover:bg-muted/20 ${idx % 2 ? 'bg-muted/5' : ''}`}>
+                <td className="px-2 py-1.5 text-center">
+                  {abc && (
+                    <span className={`inline-block w-5 text-center text-[10px] font-bold leading-5 ${ABC_STYLE[abc]}`}>
+                      {abc}
+                    </span>
+                  )}
                 </td>
-              )}
-              {hasAnalytics && (() => {
-                const an = analyticsByArticle?.[row.article];
-                return (
-                  <>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-sky-400/70">
-                      {an?.openCardCount ? formatNumber(an.openCardCount) : <span className="text-muted-foreground/30">—</span>}
-                    </td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-sky-400/70">
-                      {an?.addToCartConversion ? `${an.addToCartConversion.toFixed(1)}%` : <span className="text-muted-foreground/30">—</span>}
-                    </td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-sky-400/70">
-                      {an?.buyoutsPercent ? `${an.buyoutsPercent.toFixed(1)}%` : <span className="text-muted-foreground/30">—</span>}
-                    </td>
-                  </>
-                );
-              })()}
-              <td className="px-1 py-0.5 text-right" onClick={e => { e.stopPropagation(); setEditing(row.article); }}>
-                {isEditing ? (
-                  <CostEditor article={row.article} costPerUnit={c.costPerUnit} vatRate={c.vatRate}
-                    onChangeCost={v => updateCost(row.article, 'costPerUnit', v)}
-                    onChangeVat={v  => updateCost(row.article, 'vatRate',    v)}
-                    onClose={() => setEditing(null)} />
-                ) : (
-                  <span className={`group flex items-center justify-end gap-1 cursor-pointer rounded px-2 py-1 hover:bg-primary/10 hover:text-primary transition-colors tabular-nums ${row.costTotal > 0 ? 'text-muted-foreground' : 'text-yellow-400/50'}`}>
-                    {row.costTotal > 0 ? `-${formatCurrency(row.costTotal)}` : '—'}
-                    <Pencil className="w-2.5 h-2.5 opacity-0 group-hover:opacity-60 flex-shrink-0" />
-                  </span>
+                <td className="px-3 py-1.5 font-medium text-primary/80 whitespace-nowrap">{row.article}</td>
+                <td className="px-3 py-1.5 text-muted-foreground max-w-[160px] truncate" title={row.name}>{row.name}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(row.salesCount)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-red-400/70">{row.returnsCount > 0 ? formatNumber(row.returnsCount) : '—'}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.avgPrice > 0 ? formatCurrency(row.avgPrice) : '—'}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums font-medium">{formatCurrency(row.netSales)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-orange-400/80">{row.ozonCommission > 0 ? `-${formatCurrency(row.ozonCommission)}` : '—'}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-blue-400/80">{row.deliveryServices > 0 ? `-${formatCurrency(row.deliveryServices)}` : '—'}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-purple-400/80">{row.agentServices > 0 ? `-${formatCurrency(row.agentServices)}` : '—'}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-cyan-400/80">{(row.storage + row.fboServices) > 0 ? `-${formatCurrency(row.storage + row.fboServices)}` : '—'}</td>
+                {hasPerfData && (
+                  <td className="px-3 py-1.5 text-right tabular-nums">
+                    {perfDrr > 0
+                      ? <span className={perfDrr > 30 ? 'text-red-400' : perfDrr > 15 ? 'text-yellow-400' : 'text-green-400/80'}>
+                          {perfDrr.toFixed(1)}%
+                        </span>
+                      : <span className="text-muted-foreground/30">—</span>
+                    }
+                  </td>
                 )}
-              </td>
-              <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.taxAmount > 0 ? `-${formatCurrency(row.taxAmount)}` : '—'}</td>
-              <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${row.netProfit > 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(row.netProfit)}</td>
-              <td className={`px-3 py-1.5 text-right tabular-nums ${row.marginPercent > 20 ? 'text-green-400' : row.marginPercent > 10 ? 'text-yellow-400' : 'text-red-400'}`}>{formatPercent(row.marginPercent)}</td>
-              <td className={`px-3 py-1.5 text-right tabular-nums ${row.netProfit >= 0 ? 'text-green-400/80' : 'text-red-400/80'}`}>
-                {row.salesCount > 0 ? formatCurrency(row.netProfit / row.salesCount) : '—'}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+                {hasAnalytics && (() => {
+                  const an = analyticsByArticle?.[row.article];
+                  return (
+                    <>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-sky-400/70">
+                        {an?.openCardCount ? formatNumber(an.openCardCount) : <span className="text-muted-foreground/30">—</span>}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-sky-400/70">
+                        {an?.addToCartConversion ? `${an.addToCartConversion.toFixed(1)}%` : <span className="text-muted-foreground/30">—</span>}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-sky-400/70">
+                        {an?.buyoutsPercent ? `${an.buyoutsPercent.toFixed(1)}%` : <span className="text-muted-foreground/30">—</span>}
+                      </td>
+                    </>
+                  );
+                })()}
+                <td className="px-1 py-0.5 text-right" onClick={e => { e.stopPropagation(); setEditing(row.article); }}>
+                  {isEditing ? (
+                    <CostEditor article={row.article} costPerUnit={c.costPerUnit} vatRate={c.vatRate}
+                      onChangeCost={v => updateCost(row.article, 'costPerUnit', v)}
+                      onChangeVat={v  => updateCost(row.article, 'vatRate',    v)}
+                      onClose={() => setEditing(null)} />
+                  ) : (
+                    <span className={`group flex items-center justify-end gap-1 cursor-pointer rounded px-2 py-1 hover:bg-primary/10 hover:text-primary transition-colors tabular-nums ${row.costTotal > 0 ? 'text-muted-foreground' : 'text-yellow-400/50'}`}>
+                      {row.costTotal > 0 ? `-${formatCurrency(row.costTotal)}` : '—'}
+                      <Pencil className="w-2.5 h-2.5 opacity-0 group-hover:opacity-60 flex-shrink-0" />
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.taxAmount > 0 ? `-${formatCurrency(row.taxAmount)}` : '—'}</td>
+                <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${row.netProfit > 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(row.netProfit)}</td>
+                <td className={`px-3 py-1.5 text-right tabular-nums ${row.marginPercent > 20 ? 'text-green-400' : row.marginPercent > 10 ? 'text-yellow-400' : 'text-red-400'}`}>{formatPercent(row.marginPercent)}</td>
+                <td className={`px-3 py-1.5 text-right tabular-nums ${costMargin === null ? 'text-muted-foreground/30' : costMargin > 30 ? 'text-emerald-400' : costMargin > 10 ? 'text-yellow-400' : 'text-red-400'}`}>
+                  {costMargin !== null ? `${costMargin.toFixed(1)}%` : '—'}
+                </td>
+                <td className={`px-3 py-1.5 text-right tabular-nums ${row.netProfit >= 0 ? 'text-green-400/80' : 'text-red-400/80'}`}>
+                  {row.salesCount > 0 ? formatCurrency(row.netProfit / row.salesCount) : '—'}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot className="sticky bottom-0 z-10 bg-card border-t-2 border-border/60">
+          <tr>
+            <td colSpan={3} className="px-3 py-1.5 text-[10px] text-muted-foreground/60 font-medium">
+              {nameFilter ? `Итого (фильтр): ${filteredRows.length} SKU` : `Итого: ${rows.length} SKU`}
+            </td>
+            <td colSpan={3} />
+            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-foreground">
+              {formatCurrency(totalRevenue)}
+            </td>
+            <td colSpan={hasPerfData ? 5 : 4} />
+            {hasAnalytics && <td colSpan={3} />}
+            <td />
+            <td />
+            <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {formatCurrency(totalProfit)}
+            </td>
+            <td colSpan={3} />
+          </tr>
+        </tfoot>
+      </table>
+    </>
   );
 }
 
