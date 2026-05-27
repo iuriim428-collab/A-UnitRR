@@ -101,7 +101,6 @@ router.post("/ym/report", async (req, res) => {
           "PICKUP",
           "CANCELLED_IN_DELIVERY",
           "RETURNED",
-          "CANCELLED_BY_USER_AFTER_CONFIRMATION",
           "PARTIALLY_RETURNED",
         ],
       };
