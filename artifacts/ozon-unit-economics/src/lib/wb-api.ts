@@ -98,6 +98,7 @@ async function fetchStatPage(
   dateFrom: string,
   dateTo: string,
   rrdid: number,
+  timeoutMs?: number,
 ): Promise<WBDetailRow[]> {
   const qs = `?dateFrom=${dateFrom}&dateTo=${dateTo}&limit=100000${rrdid ? `&rrdid=${rrdid}` : ''}`;
   // Browser-direct calls the WB endpoint path directly; proxy/server use /api/wb/report
@@ -106,7 +107,8 @@ async function fetchStatPage(
     : `/api/wb/report${qs}`;
   const url = `${base}${path}`;
 
-  const resp = await fetch(url, { headers: authHeader });
+  const signal = timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined;
+  const resp = await fetch(url, { headers: authHeader, signal });
 
   if (!resp.ok) {
     const body = await resp.text().catch(() => resp.statusText);
@@ -127,12 +129,13 @@ async function fetchAllPagesFrom(
   dateFrom: string,
   dateTo: string,
   onProgress?: (rows: number) => void,
+  timeoutMs?: number,
 ): Promise<WBDetailRow[]> {
   const allRows: WBDetailRow[] = [];
   let rrdid = 0;
 
   while (true) {
-    const page = await fetchStatPage(base, authHeader, dateFrom, dateTo, rrdid);
+    const page = await fetchStatPage(base, authHeader, dateFrom, dateTo, rrdid, timeoutMs);
     if (!Array.isArray(page) || page.length === 0) break;
 
     allRows.push(...page);
@@ -155,18 +158,23 @@ export async function fetchWBReport(
   onProgress?: (rows: number) => void,
 ): Promise<{ rows: WBDetailRow[]; method: WBFetchMethod }> {
 
-  // ── Strategy 1: Browser-direct (user's own IP) ───────────────────────────
+  // ── Strategy 1: Browser-direct (user's own IP, 5 s timeout) ────────────
+  // TypeError  = CORS blocked (WB doesn't allow cross-origin)
+  // AbortError = CORS preflight hung / network timeout
+  // Both mean "can't use browser-direct" → fall through to next strategy
   try {
     const rows = await fetchAllPagesFrom(
       WB_STAT_DIRECT,
       { Authorization: token },
       dateFrom, dateTo, onProgress,
+      5_000, // 5 s — if WB doesn't respond to CORS preflight, give up quickly
     );
     return { rows, method: 'browser' };
   } catch (err) {
-    // TypeError = CORS blocked or network error → try fallbacks
-    // Any other error (401, 429, etc.) = real WB error → surface to user
-    if (!(err instanceof TypeError)) throw err;
+    const isFallthrough = err instanceof TypeError ||
+      (err instanceof DOMException && err.name === 'AbortError') ||
+      (err instanceof DOMException && err.name === 'TimeoutError');
+    if (!isFallthrough) throw err; // Real WB error (401, 429…) → surface to user
   }
 
   // ── Strategy 2: Local proxy (user runs local-wb-proxy.mjs) ───────────────
