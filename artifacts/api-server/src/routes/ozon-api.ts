@@ -369,20 +369,49 @@ router.post("/ozon/performance-report", async (req, res) => {
             headers: { Authorization: auth },
             signal: AbortSignal.timeout(10_000),
           });
-          const pollData = await pollResp.json() as {
-            state?: string;
-            statistics?: PerfStatRaw[];
-            list?: PerfStatRaw[];
-            result?: PerfStatRaw[];
-            error?: string;
-          };
+          const pollData = await pollResp.json() as Record<string, unknown>;
+          const pollState = String(pollData.state ?? "");
+          const isReady = pollState === "OK" || pollState === "DONE" || pollState === "READY";
           req.log.info(
-            { uuid, attempt, state: pollData.state, bodyPreview: JSON.stringify(pollData).slice(0, 300) },
+            {
+              uuid, attempt, state: pollState,
+              topKeys: Object.keys(pollData),
+              bodyPreview: JSON.stringify(pollData).slice(0, isReady ? 2000 : 200),
+            },
             "perf stats poll"
           );
-          if (pollData.state === "OK" || pollData.state === "DONE" || pollData.state === "READY") {
-            const entries = pollData.statistics ?? pollData.list ?? pollData.result ?? [];
-            for (const s of entries) statsMap.set(String(s.id), s);
+          if (isReady) {
+            // The statistics may be nested in several different ways; try them all.
+            type StatEntry = Record<string, unknown>;
+            const raw = pollData as {
+              statistics?: StatEntry[] | { sku?: StatEntry[]; banner?: StatEntry[] };
+              list?: StatEntry[];
+              result?: StatEntry[];
+              rows?: StatEntry[];
+              report?: StatEntry[] | { statistics?: StatEntry[] };
+              data?: StatEntry[];
+            };
+
+            let entries: StatEntry[] = [];
+            if (Array.isArray(raw.statistics))          entries = raw.statistics;
+            else if (raw.statistics && typeof raw.statistics === "object") {
+              const nested = raw.statistics as { sku?: StatEntry[]; banner?: StatEntry[] };
+              entries = [...(nested.sku ?? []), ...(nested.banner ?? [])];
+            } else if (Array.isArray(raw.list))         entries = raw.list;
+            else if (Array.isArray(raw.result))         entries = raw.result;
+            else if (Array.isArray(raw.rows))           entries = raw.rows;
+            else if (Array.isArray(raw.data))           entries = raw.data;
+            else if (Array.isArray(raw.report))         entries = raw.report as StatEntry[];
+            else if (raw.report && typeof raw.report === "object") {
+              const r = raw.report as { statistics?: StatEntry[] };
+              entries = r.statistics ?? [];
+            }
+
+            req.log.info({ uuid, entriesFound: entries.length, sample: JSON.stringify(entries[0] ?? {}).slice(0, 300) }, "perf stats ready");
+            for (const s of entries) {
+              const sid = String((s as PerfStatRaw).id ?? "");
+              if (sid) statsMap.set(sid, s as PerfStatRaw);
+            }
             ready = true;
             break;
           }
@@ -530,8 +559,11 @@ router.post("/ozon/performance-report", async (req, res) => {
       if (moneySpent > 0 && productIds.length > 0) {
         const perProduct = moneySpent / productIds.length;
         for (const pid of productIds) {
-          const article = productIdToArticle.get(pid) ?? "";
-          if (article) spendByArticle[article] = (spendByArticle[article] ?? 0) + perProduct;
+          // Use Seller-API-resolved offer_id if available; otherwise fall back to
+          // pid directly — campaign object ids are Ozon item_ids, same as row.article
+          // (which comes from transaction item.sku, also item_id).
+          const article = productIdToArticle.get(pid) ?? pid;
+          spendByArticle[article] = (spendByArticle[article] ?? 0) + perProduct;
         }
       }
 
