@@ -123,6 +123,10 @@ router.post("/ym/report", async (req, res) => {
     }
 
     req.log.info({ orders: allOrders.length }, "ym report done");
+    // Debug: log first order structure to understand field names
+    if (allOrders.length > 0) {
+      req.log.info({ sample: JSON.stringify(allOrders[0]).slice(0, 1000) }, "ym order sample");
+    }
     res.json(allOrders);
   } catch (err) {
     const e = err as Error & { statusCode?: number; responseBody?: string };
