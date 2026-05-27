@@ -325,10 +325,10 @@ router.post("/ozon/performance-report", async (req, res) => {
     const campData = await campResp.json() as { list?: PerfCampaignRaw[] };
     const allCampaigns: PerfCampaignRaw[] = campData.list ?? [];
 
-    // Keep only active (RUNNING) campaigns — user wants only enabled ones
-    const campaigns = allCampaigns.filter(c => String(c.state ?? "").toUpperCase().includes("RUNNING"));
+    // Include ALL campaigns (not just RUNNING) — disabled ones may have had spend in the period
+    const campaigns = allCampaigns;
 
-    req.log.info({ total: allCampaigns.length, active: campaigns.length }, "perf campaigns filtered");
+    req.log.info({ total: allCampaigns.length }, "perf campaigns loaded");
 
     if (campaigns.length === 0) {
       res.json({ campaigns: [], spendByArticle: {} });
@@ -496,7 +496,7 @@ router.post("/ozon/performance-report", async (req, res) => {
     }
     req.log.info({ statsEntries: statsMap.size }, "perf stats done");
 
-    // 4. Fetch objects for all campaigns.
+    // 4. Fetch objects only for campaigns that had actual spend (avoid 30+ useless requests)
     //    Separate two types of IDs:
     //    a) numeric item_ids (Ozon SKU / item_id) — need Seller API resolution via `sku` param
     //    b) string offer_ids / articles — can be used directly
@@ -506,7 +506,14 @@ router.post("/ozon/performance-report", async (req, res) => {
     // Pre-populate: if campaign objects already have offer_id/article we store directly
     const productIdToArticle = new Map<string, string>();
 
-    for (const camp of campaigns) {
+    // Only fetch objects for campaigns that had actual spend in the period
+    const campaignsWithSpend = campaigns.filter(c => {
+      const s = statsMap.get(c.id);
+      return s !== undefined && (parseFloat(String(s.moneySpent ?? 0)) || 0) > 0;
+    });
+    req.log.info({ withSpend: campaignsWithSpend.length, total: campaigns.length }, "perf campaigns with spend");
+
+    for (const camp of campaignsWithSpend) {
       try {
         const objResp = await fetch(`${PERF_BASE}/api/client/campaign/${camp.id}/objects`, {
           headers: { Authorization: auth },
@@ -613,7 +620,7 @@ router.post("/ozon/performance-report", async (req, res) => {
       ? { ...reportSpend }
       : (() => {
           const fb: Record<string, number> = {};
-          for (const camp of campaigns) {
+          for (const camp of campaignsWithSpend) {
             const s = statsMap.get(camp.id);
             const spent = parseFloat(String(s?.moneySpent ?? 0)) || 0;
             const pids  = campProducts.get(camp.id) ?? [];
@@ -634,7 +641,8 @@ router.post("/ozon/performance-report", async (req, res) => {
       orders: number; revenue: number; drr: number; productsCount: number;
     }> = [];
 
-    for (const camp of campaigns) {
+    // Only include campaigns that had actual spend in the period (includes disabled/paused ones)
+    for (const camp of campaignsWithSpend) {
       const s = statsMap.get(camp.id);
       const moneySpent = parseFloat(String(s?.moneySpent ?? 0)) || 0;
       const revenue    = parseFloat(String(s?.revenue    ?? 0)) || 0;
