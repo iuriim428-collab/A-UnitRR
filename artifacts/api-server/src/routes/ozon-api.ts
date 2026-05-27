@@ -337,7 +337,9 @@ router.post("/ozon/performance-report", async (req, res) => {
 
     // 3. Statistics — API allows max 10 campaigns per request, batch accordingly
     const campIdsInt = campaigns.map(c => Number(c.id)).filter(n => !isNaN(n));
-    const statsMap = new Map<string, PerfStatRaw>();
+    const statsMap   = new Map<string, PerfStatRaw>();
+    // Built from report rows: sku (Ozon item_id) → total moneySpent
+    const reportSpend: Record<string, number> = {};
 
     // /api/client/statistics/json is ASYNC: POST creates a task → returns UUID,
     // then poll GET /api/client/statistics/{UUID} until state == "OK".
@@ -404,25 +406,49 @@ router.post("/ozon/performance-report", async (req, res) => {
 
                 try {
                   const reportData = JSON.parse(reportText) as Record<string, unknown>;
-                  if (Array.isArray(reportData))
+                  if (Array.isArray(reportData)) {
                     entries = reportData as StatEntry[];
-                  else if (Array.isArray(reportData.statistics))
-                    entries = reportData.statistics as StatEntry[];
-                  else if (Array.isArray(reportData.list))
-                    entries = reportData.list as StatEntry[];
-                  else if (Array.isArray(reportData.result))
-                    entries = reportData.result as StatEntry[];
-                  else if (Array.isArray(reportData.rows))
-                    entries = reportData.rows as StatEntry[];
-                  else if (reportData.statistics && typeof reportData.statistics === "object") {
-                    const nested = reportData.statistics as { sku?: StatEntry[]; banner?: StatEntry[] };
-                    entries = [...(nested.sku ?? []), ...(nested.banner ?? [])];
                   } else {
-                    // Log all top-level keys if we still don't find entries
-                    req.log.info({ uuid, reportKeys: Object.keys(reportData) }, "perf stats report unknown shape");
+                    // Ozon report format: { [campaignId]: { title, report: { rows: [...] } } }
+                    // Each row has: sku (item_id), moneySpent (Russian "374,65"), views, clicks, orders, ordersMoney
+                    type ReportRow = {
+                      sku?: string; moneySpent?: string; views?: string;
+                      clicks?: string; orders?: string; ordersMoney?: string;
+                    };
+                    type CampReport = { title?: string; report?: { rows?: ReportRow[] } };
+                    const parseRu = (s?: string) => parseFloat((s ?? "0").replace(",", ".")) || 0;
+                    let foundCampKeyed = false;
+
+                    for (const [campId, campVal] of Object.entries(reportData)) {
+                      const camp = campVal as CampReport;
+                      const rows = camp?.report?.rows;
+                      if (!Array.isArray(rows)) continue;
+                      foundCampKeyed = true;
+
+                      let totalSpent = 0, totalViews = 0, totalClicks = 0, totalOrders = 0, totalRevenue = 0;
+                      for (const row of rows) {
+                        const spent   = parseRu(row.moneySpent);
+                        const sku     = String(row.sku ?? "").trim();
+                        totalSpent   += spent;
+                        totalViews   += parseInt(row.views   ?? "0") || 0;
+                        totalClicks  += parseInt(row.clicks  ?? "0") || 0;
+                        totalOrders  += parseInt(row.orders  ?? "0") || 0;
+                        totalRevenue += parseRu(row.ordersMoney);
+                        if (sku) reportSpend[sku] = (reportSpend[sku] ?? 0) + spent;
+                      }
+                      // Store campaign totals in statsMap for the summary table
+                      statsMap.set(campId, {
+                        id: campId, moneySpent: totalSpent, views: totalViews,
+                        clicks: totalClicks, orders: totalOrders, revenue: totalRevenue,
+                      } as unknown as PerfStatRaw);
+                    }
+
+                    if (!foundCampKeyed) {
+                      req.log.info({ uuid, reportKeys: Object.keys(reportData) }, "perf stats report unknown shape");
+                    }
                   }
                 } catch {
-                  req.log.info({ uuid, note: "report is not JSON, raw preview above" }, "perf stats report not JSON");
+                  req.log.info({ uuid, note: "report is not JSON" }, "perf stats report not JSON");
                 }
               } catch (e) {
                 req.log.warn({ uuid, err: e }, "perf stats report fetch error");
@@ -581,7 +607,27 @@ router.post("/ozon/performance-report", async (req, res) => {
     }
 
     // 6. Build results and spendByArticle
-    const spendByArticle: Record<string, number> = {};
+    // reportSpend is keyed by Ozon item_id (same as row.article from transactions) — use directly.
+    // Fall back to campaign-level distribution if report rows had no per-SKU data.
+    const spendByArticle: Record<string, number> = Object.keys(reportSpend).length > 0
+      ? { ...reportSpend }
+      : (() => {
+          const fb: Record<string, number> = {};
+          for (const camp of campaigns) {
+            const s = statsMap.get(camp.id);
+            const spent = parseFloat(String(s?.moneySpent ?? 0)) || 0;
+            const pids  = campProducts.get(camp.id) ?? [];
+            if (spent > 0 && pids.length > 0) {
+              const perProduct = spent / pids.length;
+              for (const pid of pids) {
+                const key = productIdToArticle.get(pid) ?? pid;
+                fb[key] = (fb[key] ?? 0) + perProduct;
+              }
+            }
+          }
+          return fb;
+        })();
+
     const results: Array<{
       id: string; title: string; state: string; type: string;
       budget: number; moneySpent: number; views: number; clicks: number;
@@ -592,23 +638,11 @@ router.post("/ozon/performance-report", async (req, res) => {
       const s = statsMap.get(camp.id);
       const moneySpent = parseFloat(String(s?.moneySpent ?? 0)) || 0;
       const revenue    = parseFloat(String(s?.revenue    ?? 0)) || 0;
-      const views      = s?.views  ?? 0;
-      const clicks     = s?.clicks ?? 0;
-      const orders     = s?.orders ?? 0;
+      const views      = (s?.views  as number) ?? 0;
+      const clicks     = (s?.clicks as number) ?? 0;
+      const orders     = (s?.orders as number) ?? 0;
       const drr        = revenue > 0 ? (moneySpent / revenue) * 100 : 0;
-
       const productIds = campProducts.get(camp.id) ?? [];
-
-      if (moneySpent > 0 && productIds.length > 0) {
-        const perProduct = moneySpent / productIds.length;
-        for (const pid of productIds) {
-          // Use Seller-API-resolved offer_id if available; otherwise fall back to
-          // pid directly — campaign object ids are Ozon item_ids, same as row.article
-          // (which comes from transaction item.sku, also item_id).
-          const article = productIdToArticle.get(pid) ?? pid;
-          spendByArticle[article] = (spendByArticle[article] ?? 0) + perProduct;
-        }
-      }
 
       results.push({
         id: camp.id, title: camp.title, state: camp.state, type: camp.advObjectType,
@@ -617,7 +651,11 @@ router.post("/ozon/performance-report", async (req, res) => {
       });
     }
 
-    req.log.info({ campaigns: results.length, skus: Object.keys(spendByArticle).length }, "perf report done");
+    req.log.info({
+      campaigns: results.length,
+      skus: Object.keys(spendByArticle).length,
+      totalSpend: Object.values(spendByArticle).reduce((a, b) => a + b, 0).toFixed(2),
+    }, "perf report done");
     res.json({ campaigns: results, spendByArticle });
 
   } catch (err) {
