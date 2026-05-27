@@ -219,7 +219,10 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
   const [nameFilter, setNameFilter] = useState('');
 
   const abcMap = useMemo(() => computeAbcMap(rows), [rows]);
+  // ДРР is available from transaction-level promotion costs even without Performance API.
+  // spendByArticle (from Performance API) takes priority when present.
   const hasPerfData  = spendByArticle !== undefined;
+  const hasDrrData   = hasPerfData || rows.some(r => (r.promotion ?? 0) > 0);
   const hasAnalytics = analyticsByArticle !== undefined && Object.keys(analyticsByArticle).length > 0;
 
   const filteredRows = useMemo(() => {
@@ -269,10 +272,11 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
             {cols.map(h => (
               <th key={h} className={`px-3 py-2 font-medium text-muted-foreground whitespace-nowrap ${h === 'Артикул' || h === 'Название' ? 'text-left' : h === 'ABC' ? 'text-center' : 'text-right'}`}>{h}</th>
             ))}
-            {hasPerfData && (
+            {hasDrrData && (
               <th className="text-right px-3 py-2 font-medium whitespace-nowrap">
                 <span className="text-yellow-400/80 flex items-center justify-end gap-1">
                   <Megaphone className="w-2.5 h-2.5" />ДРР%
+                  {!hasPerfData && <span className="text-[9px] text-muted-foreground/50 ml-0.5">(из транз.)</span>}
                 </span>
               </th>
             )}
@@ -309,8 +313,9 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
             const isEditing = editingArticle === row.article;
             const c   = costs[row.article] ?? { costPerUnit: 0, vatRate: 0 };
             const abc = abcMap.get(row.article);
-            const perfSpend = hasPerfData ? (spendByArticle?.[row.article] ?? 0) : 0;
-            const perfDrr   = (hasPerfData && perfSpend > 0 && row.netSales > 0) ? (perfSpend / row.netSales) * 100 : 0;
+            // Use Performance API spend if available, otherwise fall back to transaction-level promotion
+            const perfSpend = spendByArticle?.[row.article] ?? (row.promotion ?? 0);
+            const perfDrr   = (perfSpend > 0 && row.netSales > 0) ? (perfSpend / row.netSales) * 100 : 0;
             const costMargin = row.costTotal > 0 ? (row.netProfit / row.costTotal) * 100 : null;
             return (
               <tr key={row.article} className={`border-b border-border/30 hover:bg-muted/20 ${idx % 2 ? 'bg-muted/5' : ''}`}>
@@ -331,7 +336,7 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
                 <td className="px-3 py-1.5 text-right tabular-nums text-blue-400/80">{row.deliveryServices > 0 ? `-${formatCurrency(row.deliveryServices)}` : '—'}</td>
                 <td className="px-3 py-1.5 text-right tabular-nums text-purple-400/80">{row.agentServices > 0 ? `-${formatCurrency(row.agentServices)}` : '—'}</td>
                 <td className="px-3 py-1.5 text-right tabular-nums text-cyan-400/80">{(row.storage + row.fboServices) > 0 ? `-${formatCurrency(row.storage + row.fboServices)}` : '—'}</td>
-                {hasPerfData && (
+                {hasDrrData && (
                   <td className="px-3 py-1.5 text-right tabular-nums">
                     {perfDrr > 0
                       ? <span className={perfDrr > 30 ? 'text-red-400' : perfDrr > 15 ? 'text-yellow-400' : 'text-green-400/80'}>
@@ -392,7 +397,7 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
             <td className="px-3 py-1.5 text-right tabular-nums font-bold text-foreground">
               {formatCurrency(totalRevenue)}
             </td>
-            <td colSpan={hasPerfData ? 5 : 4} />
+            <td colSpan={hasDrrData ? 5 : 4} />
             {hasAnalytics && <td colSpan={3} />}
             <td />
             <td />
