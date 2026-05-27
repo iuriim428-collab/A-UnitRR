@@ -1268,6 +1268,16 @@ export default function Home() {
 
         <div className="flex-1" />
 
+        {/* Desktop download */}
+        <a
+          href="/UnitEconomics-win-x64-v2.zip"
+          download
+          title="Скачать десктопную версию (Windows x64)"
+          className="flex items-center gap-1.5 h-7 px-2.5 text-[11px] border border-primary/40 bg-primary/10 hover:bg-primary/20 transition-colors text-primary whitespace-nowrap">
+          <Download className="w-3.5 h-3.5" />
+          <span>Скачать .exe</span>
+        </a>
+
         {/* Settings export / import */}
         <div className="flex items-center gap-1">
           <button

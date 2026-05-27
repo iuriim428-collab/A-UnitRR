@@ -35,7 +35,13 @@ app.use("/api", router);
 
 const frontendDir = process.env["SERVE_FRONTEND_DIR"];
 if (frontendDir && existsSync(frontendDir)) {
-  app.use(express.static(frontendDir));
+  app.use(express.static(frontendDir, {
+    setHeaders(res, filePath) {
+      if (filePath.endsWith('.zip')) {
+        res.setHeader('Cache-Control', 'no-store');
+      }
+    },
+  }));
   app.get("/{*path}", (_req, res) => {
     res.sendFile(join(frontendDir, "index.html"));
   });
