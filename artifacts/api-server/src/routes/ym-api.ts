@@ -123,18 +123,6 @@ router.post("/ym/report", async (req, res) => {
     }
 
     req.log.info({ orders: allOrders.length }, "ym report done");
-    // Debug: log structure of first order to verify commissions field
-    if (allOrders.length > 0) {
-      const sample = allOrders[0] as Record<string, unknown>;
-      req.log.info({
-        sampleOrderKeys: Object.keys(sample),
-        hasCommissions: Array.isArray(sample["commissions"]),
-        commissionsCount: Array.isArray(sample["commissions"]) ? (sample["commissions"] as unknown[]).length : 0,
-        commissionsSample: Array.isArray(sample["commissions"]) ? (sample["commissions"] as unknown[]).slice(0, 3) : null,
-        hasItems: Array.isArray(sample["items"]),
-        itemsSample: Array.isArray(sample["items"]) ? ((sample["items"] as Record<string, unknown>[])[0] ?? null) : null,
-      }, "ym order sample");
-    }
     res.json(allOrders);
   } catch (err) {
     const e = err as Error & { statusCode?: number; responseBody?: string };

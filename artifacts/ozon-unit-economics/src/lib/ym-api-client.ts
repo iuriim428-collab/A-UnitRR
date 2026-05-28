@@ -4,16 +4,18 @@
  *
  * Uses POST /v2/campaigns/{id}/stats/orders (Api-Key auth, v2 schema as of 2024+).
  *
- * Real response structure (confirmed from live API):
- *  order.items[]          — array of items (NOT initialItems)
+ * Real response structure (confirmed from live API, May 2026):
+ *  order.items[]          — array of items
  *  item.prices[]          — [{type:'MARKETPLACE'|'BUYER'|..., costPerItem, total}]
- *  order.commissions[]    — [{type:'AUCTION_PROMOTION'|'MARKETPLACE_OFFER'|..., actual}]
- *                           actual is a monetary AMOUNT in rubles (not a rate/percentage)
+ *  item.bidFee            — DRR bid rate in hundredths of percent (e.g. 2984 = 29.84%)
+ *                           Absolute ad spend = price × bidFee / 10000
+ *  order.commissions[]    — [{type:'AGENCY'|..., actual}]
+ *                           actual is a monetary amount in rubles
  *  item.shopSku           — seller article
  *
  * Commission type mapping:
- *  MARKETPLACE_OFFER                              → ozonCommission
- *  AUCTION_PROMOTION                              → promotion
+ *  AGENCY, MARKETPLACE_OFFER                      → ozonCommission
+ *  AUCTION_PROMOTION                              → promotion (fallback if bidFee absent)
  *  DELIVERY_TO_CUSTOMER, DELIVERY, DELIVERY_SUBSIDY,
  *  EXPRESS_DELIVERY_RECIPIENT, EXPRESS_DELIVERY   → deliveryServices
  *  RETURN_PROCESSING, CANCELLED_RETURN_PROCESSING → returnProcessing
@@ -23,7 +25,7 @@ import { OzonReportRow } from '../types';
 
 // ─── Raw YM order shape (v2 live API) ──────────────────────────────────────
 interface YMItemPrice {
-  type: string;       // 'MARKETPLACE' | 'BUYER' | 'SUBSIDY' | etc.
+  type: string;       // 'MARKETPLACE' | 'BUYER' | 'CASHBACK' | etc.
   costPerItem: number;
   total: number;
 }
@@ -34,11 +36,14 @@ interface YMItem {
   marketSku?: number;
   count: number;
   prices: YMItemPrice[];
+  /** DRR bid rate in hundredths of percent (e.g. 2984 = 29.84%).
+   *  Absolute advertising spend = MARKETPLACE_price × bidFee / 10000 */
+  bidFee?: number;
 }
 
 interface YMCommission {
-  type: string;   // 'MARKETPLACE_OFFER' | 'AUCTION_PROMOTION' | 'DELIVERY_TO_CUSTOMER' | etc.
-  actual: number; // monetary amount in RUB (not a percentage)
+  type: string;   // 'AGENCY' | 'MARKETPLACE_OFFER' | 'DELIVERY_TO_CUSTOMER' | etc.
+  actual: number; // monetary amount in RUB
 }
 
 interface YMOrder {
@@ -62,6 +67,7 @@ type CommField = 'ozonCommission' | 'promotion' | 'deliveryServices' | 'returnPr
 
 function classifyCommission(type: string): CommField {
   switch (type) {
+    case 'AGENCY':
     case 'MARKETPLACE_OFFER':
       return 'ozonCommission';
     case 'AUCTION_PROMOTION':
@@ -111,6 +117,14 @@ function itemRevenue(item: YMItem): number {
   return 0;
 }
 
+/** Absolute advertising spend from bidFee.
+ *  bidFee = DRR rate in hundredths of percent.
+ *  absolute = revenue × bidFee / 10000 */
+function itemBidFeeAbsolute(item: YMItem): number {
+  if (!item.bidFee || item.bidFee <= 0) return 0;
+  return itemRevenue(item) * item.bidFee / 10000;
+}
+
 // ─── Fetch ────────────────────────────────────────────────────────────────────
 export async function fetchYMReport(
   token: string,
@@ -147,7 +161,7 @@ export function parseYMOrders(orders: YMOrder[]): OzonReportRow[] {
     const isReturn    = RETURN_STATUSES.has(order.status);
     if (!isDelivered && !isReturn) continue;
 
-    // Break down order-level commissions by type
+    // Order-level commission breakdown (AGENCY, DELIVERY, etc.)
     const breakdown = orderCommissionBreakdown(order);
 
     // Distribute order-level amounts proportionally by item revenue share
@@ -176,15 +190,18 @@ export function parseYMOrders(orders: YMOrder[]): OzonReportRow[] {
       const qty     = item.count || 0;
       const lineRev = itemRevenue(item);
 
-      // Proportional share of this item vs order total
+      // Proportional share of this item vs order total (for order-level commissions)
       const lineShare = orderTotalRevenue > 0 ? lineRev / orderTotalRevenue : 1 / items.length;
+
+      // Per-item advertising from bidFee (rate × price, not distributed from order level)
+      const bidFeeAbs = itemBidFeeAbsolute(item);
 
       if (isDelivered) {
         r.salesCount    += qty;
         r.ordersCount   += qty;
         r.ordersSum     += lineRev;
         r.ozonCommission    += breakdown.ozonCommission    * lineShare;
-        r.promotion         += breakdown.promotion         * lineShare;
+        r.promotion         += breakdown.promotion         * lineShare + bidFeeAbs;
         r.deliveryServices  += breakdown.deliveryServices  * lineShare;
         r.returnProcessing  += breakdown.returnProcessing  * lineShare;
         r.otherExpenses     += breakdown.otherExpenses     * lineShare;
@@ -194,7 +211,7 @@ export function parseYMOrders(orders: YMOrder[]): OzonReportRow[] {
         r.returnsCount  += qty;
         r.returnsSum    += lineRev;
         r.ozonCommission    -= breakdown.ozonCommission    * lineShare;
-        r.promotion         -= breakdown.promotion         * lineShare;
+        r.promotion         -= breakdown.promotion         * lineShare + bidFeeAbs;
         r.deliveryServices  -= breakdown.deliveryServices  * lineShare;
         r.returnProcessing  -= breakdown.returnProcessing  * lineShare;
         r.otherExpenses     -= breakdown.otherExpenses     * lineShare;
