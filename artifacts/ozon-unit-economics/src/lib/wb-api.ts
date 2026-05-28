@@ -293,21 +293,25 @@ export function parseWBRows(
       r.salesCount  += qty;
       r.ordersCount += qty;
       r.ordersSum   += price * qty;
+      // Commission is charged only on sales; WB may report it as negative (a deduction),
+      // so we take the absolute value to ensure it's always a positive expense.
+      r.ozonCommission += Math.abs(row.ppvz_sales_commission || 0);
     }
     if (isReturn) {
       r.returnsCount += qty;
       r.returnsSum   += price * qty;
     }
 
-    r.ozonCommission   += row.ppvz_sales_commission || 0;
-    r.deliveryServices += row.delivery_rub || 0;
+    // WB reports monetary charges as negative values (deductions from payout).
+    // Use Math.abs() so all expenses accumulate as positive numbers regardless of sign convention.
+    r.deliveryServices += Math.abs(row.delivery_rub || 0);
 
-    const acq = row.acquiring_fee || 0;
+    const acq = Math.abs(row.acquiring_fee || 0);
     r.acquiring     += acq;
     r.agentServices += acq;
 
-    r.storage       += (row.storage_fee || 0) + (row.acceptance || 0);
-    r.otherExpenses += (row.penalty || 0) + (row.deduction || 0);
+    r.storage       += Math.abs(row.storage_fee || 0) + Math.abs(row.acceptance || 0);
+    r.otherExpenses += Math.abs(row.penalty || 0) + Math.abs(row.deduction || 0);
   }
 
   for (const r of Object.values(acc)) {

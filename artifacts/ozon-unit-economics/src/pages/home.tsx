@@ -1278,6 +1278,7 @@ function WbTabContent({ wb }: { wb: ReturnType<typeof useWildberries> }) {
               <SkuTable rows={wb.calculatedRows} costs={wb.costs}
                 editingArticle={editingArticle} setEditing={setEditingArticle}
                 updateCost={wb.updateCost}
+                spendByArticle={wb.hasAdvert ? wb.advertSpendByArticle : undefined}
                 analyticsByArticle={wb.hasAnalytics ? wb.analytics : undefined} />
             </div>
           </>
