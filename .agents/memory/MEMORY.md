@@ -1,2 +1,3 @@
 - [YM API auth](ym-api-auth.md) — токен ЯМ должен быть y0_Ag.../Ag... (OAuth), а не ACMA: (IAM); curl-subprocess решил блокировку TLS
 - [WB API proxy](wb-api-proxy.md) — WB s2s заблокировал GCP IP; локальный прокси local-wb-proxy.mjs на порту 3001
+- [YM billing API](ym-billing-api.md) — /v2/campaigns/{id}/billing/transactions требует OAuth-токен; ACMA-токен даёт 404; комиссия берётся из order.commissions[].actual (тип AGENCY) в stats/orders

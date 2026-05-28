@@ -19,23 +19,6 @@ function loadCosts(): Record<string, SkuCost> {
   try { const s = localStorage.getItem(LS_COSTS_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
 }
 
-async function fetchYMCommissions(
-  token: string,
-  campaignId: string,
-  businessId: string,
-  dateFrom: string,
-  dateTo: string,
-): Promise<Record<string, number>> {
-  const resp = await fetch('/api/ym/commissions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Ym-Token': token },
-    body: JSON.stringify({ campaignId, businessId, dateFrom, dateTo }),
-  });
-  if (!resp.ok) return {};
-  const data = await resp.json() as { byArticle?: Record<string, number>; noBusinessId?: boolean };
-  return data.byArticle ?? {};
-}
-
 export function useYmApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
   const [rows,        setRows]       = useState<OzonReportRow[]>([]);
   const [costs,       setCosts]      = useState<Record<string, SkuCost>>(loadCosts);
@@ -46,7 +29,6 @@ export function useYmApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
 
   const [token,      setTokenState]      = useState(() => localStorage.getItem(LS('token'))       ?? '');
   const [campaignId, setCampaignIdState] = useState(() => localStorage.getItem(LS('campaign_id')) ?? '');
-  const [businessId, setBusinessIdState] = useState(() => localStorage.getItem(LS('business_id')) ?? '');
   const [dateFrom, setDateFrom]          = useState(firstOfMonth);
   const [dateTo,   setDateTo]            = useState(todayStr);
 
@@ -56,7 +38,6 @@ export function useYmApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
 
   const setToken      = useCallback((v: string) => { setTokenState(v);      localStorage.setItem(LS('token'),       v); }, []);
   const setCampaignId = useCallback((v: string) => { setCampaignIdState(v); localStorage.setItem(LS('campaign_id'), v); }, []);
-  const setBusinessId = useCallback((v: string) => { setBusinessIdState(v); localStorage.setItem(LS('business_id'), v); }, []);
 
   const calculatedRows = useMemo((): CalculatedRow[] =>
     rows
@@ -80,24 +61,8 @@ export function useYmApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
     setLoading(true); setError(null);
     try {
       const orders = await fetchYMReport(token.trim(), campaignId.trim(), dateFrom, dateTo);
-      let parsed = parseYMOrders(orders);
+      const parsed = parseYMOrders(orders);
       setOrderCount(orders.length);
-
-      // If businessId provided — fetch real billing commissions and overwrite ozonCommission
-      if (businessId.trim()) {
-        try {
-          const byArticle = await fetchYMCommissions(
-            token.trim(), campaignId.trim(), businessId.trim(), dateFrom, dateTo,
-          );
-          if (Object.keys(byArticle).length > 0) {
-            parsed = parsed.map(r => ({
-              ...r,
-              ozonCommission: byArticle[r.article] ?? r.ozonCommission,
-            }));
-          }
-        } catch { /* non-fatal: keep AGENCY commissions */ }
-      }
-
       setRows(parsed);
       if (parsed.length === 0) setError('Нет данных за выбранный период');
     } catch (e) {
@@ -106,7 +71,7 @@ export function useYmApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
     } finally {
       setLoading(false);
     }
-  }, [token, campaignId, businessId, dateFrom, dateTo]);
+  }, [token, campaignId, dateFrom, dateTo]);
 
   const clear = useCallback(() => {
     setRows([]); setCosts({}); setError(null); setOrderCount(null); setFilter('all');
@@ -119,7 +84,6 @@ export function useYmApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
     hasCosts: Object.keys(costs).length > 0,
     token,      setToken,
     campaignId, setCampaignId,
-    businessId, setBusinessId,
     dateFrom, setDateFrom,
     dateTo,   setDateTo,
     loadReport, clear, updateCost,
