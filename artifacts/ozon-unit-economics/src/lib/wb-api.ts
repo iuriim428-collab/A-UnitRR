@@ -258,11 +258,30 @@ export function parseWBRows(
   raw: WBDetailRow[],
 ): { rows: OzonReportRow[]; nmMap: Map<number, string> } {
   const acc: Record<string, OzonReportRow> = {};
+
+  // ── Pass 1: build nm_id → article map from rows that have sa_name ──────────
+  // Storage/penalty rows often arrive with sa_name="" but valid nm_id.
+  // Without this map they would group under nm_id-as-string instead of the
+  // seller article, so storage never merges with the corresponding product row.
   const nmMap = new Map<number, string>();
+  for (const row of raw) {
+    const saName = row.sa_name?.trim();
+    if (row.nm_id && saName) {
+      nmMap.set(row.nm_id, saName);
+    }
+  }
+
+  // ── Pass 2: accumulate all financial fields ───────────────────────────────
+  const resolveArticle = (row: WBDetailRow): string => {
+    const saName = row.sa_name?.trim();
+    if (saName) return saName;
+    // Prefer nm_id lookup so storage/penalty rows merge with their product
+    if (row.nm_id) return nmMap.get(row.nm_id) ?? String(row.nm_id);
+    return row.barcode?.trim() || 'unknown';
+  };
 
   for (const row of raw) {
-    const article = (row.sa_name || row.barcode || String(row.nm_id) || 'unknown').trim();
-    if (row.nm_id) nmMap.set(row.nm_id, article);
+    const article = resolveArticle(row);
 
     if (!acc[article]) {
       acc[article] = {
