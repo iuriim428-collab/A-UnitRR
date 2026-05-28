@@ -366,6 +366,11 @@ async function runPerfJob(
         }
         if (!created || !createData.UUID) {
           log.warn({ status: createResp?.status }, "perf stats create gave up");
+          if (createResp?.status === 429) {
+            job.status = "error";
+            job.error = "Ozon уже обрабатывает другой запрос статистики. Подождите 2–3 минуты и попробуйте снова.";
+            return;
+          }
           continue;
         }
         const uuid = createData.UUID;

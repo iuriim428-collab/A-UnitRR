@@ -13,7 +13,7 @@ import {
   Upload, Download, Trash2, FolderOpen, FileSpreadsheet,
   Pencil, CheckCircle, AlertCircle, RefreshCw, Key, Calendar,
   Eye, EyeOff, Folder, Globe, Megaphone, TrendingUp, ChevronDown, ChevronUp,
-  Search, X,
+  Search, X, ChevronsUpDown,
 } from 'lucide-react';
 
 // ─── ABC analysis ──────────────────────────────────────────────────────────────
@@ -216,11 +216,16 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
   spendByArticle?: Record<string, number>;
   analyticsByArticle?: Record<string, WBAnalyticsItem>;
 }) {
+  type SortKey = 'article' | 'name' | 'salesCount' | 'returnsCount' | 'avgPrice' | 'netSales'
+    | 'ozonCommission' | 'deliveryServices' | 'agentServices' | 'storage' | 'drr'
+    | 'views' | 'cartPct' | 'buyoutPct'
+    | 'costTotal' | 'taxAmount' | 'netProfit' | 'marginPercent' | 'costMargin' | 'profitPerUnit';
+
   const [nameFilter, setNameFilter] = useState('');
+  const [sortKey, setSortKey]       = useState<SortKey | null>(null);
+  const [sortDir, setSortDir]       = useState<'asc' | 'desc'>('desc');
 
   const abcMap = useMemo(() => computeAbcMap(rows), [rows]);
-  // ДРР is available from transaction-level promotion costs even without Performance API.
-  // spendByArticle (from Performance API) takes priority when present.
   const hasPerfData  = spendByArticle !== undefined;
   const hasDrrData   = hasPerfData || rows.some(r => (r.promotion ?? 0) > 0);
   const hasAnalytics = analyticsByArticle !== undefined && Object.keys(analyticsByArticle).length > 0;
@@ -233,12 +238,62 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
     );
   }, [rows, nameFilter]);
 
+  const sortedRows = useMemo(() => {
+    if (!sortKey) return filteredRows;
+    const dir = sortDir === 'desc' ? -1 : 1;
+    return [...filteredRows].sort((a, b) => {
+      let va: number | string = 0;
+      let vb: number | string = 0;
+      const spend = (r: CalculatedRow) => spendByArticle?.[r.article] ?? (r.promotion ?? 0);
+      switch (sortKey) {
+        case 'article':        va = a.article;                                  vb = b.article; break;
+        case 'name':           va = a.name;                                     vb = b.name; break;
+        case 'salesCount':     va = a.salesCount;                               vb = b.salesCount; break;
+        case 'returnsCount':   va = a.returnsCount;                             vb = b.returnsCount; break;
+        case 'avgPrice':       va = a.avgPrice;                                 vb = b.avgPrice; break;
+        case 'netSales':       va = a.netSales;                                 vb = b.netSales; break;
+        case 'ozonCommission': va = a.ozonCommission;                           vb = b.ozonCommission; break;
+        case 'deliveryServices': va = a.deliveryServices;                       vb = b.deliveryServices; break;
+        case 'agentServices':  va = a.agentServices;                            vb = b.agentServices; break;
+        case 'storage':        va = a.storage + a.fboServices;                  vb = b.storage + b.fboServices; break;
+        case 'drr':            va = a.netSales > 0 ? spend(a) / a.netSales * 100 : 0; vb = b.netSales > 0 ? spend(b) / b.netSales * 100 : 0; break;
+        case 'views':          va = analyticsByArticle?.[a.article]?.openCardCount ?? 0;   vb = analyticsByArticle?.[b.article]?.openCardCount ?? 0; break;
+        case 'cartPct':        va = analyticsByArticle?.[a.article]?.addToCartConversion ?? 0; vb = analyticsByArticle?.[b.article]?.addToCartConversion ?? 0; break;
+        case 'buyoutPct':      va = analyticsByArticle?.[a.article]?.buyoutsPercent ?? 0;  vb = analyticsByArticle?.[b.article]?.buyoutsPercent ?? 0; break;
+        case 'costTotal':      va = a.costTotal;                                vb = b.costTotal; break;
+        case 'taxAmount':      va = a.taxAmount;                                vb = b.taxAmount; break;
+        case 'netProfit':      va = a.netProfit;                                vb = b.netProfit; break;
+        case 'marginPercent':  va = a.marginPercent;                            vb = b.marginPercent; break;
+        case 'costMargin':     va = a.costTotal > 0 ? a.netProfit / a.costTotal * 100 : -1e9; vb = b.costTotal > 0 ? b.netProfit / b.costTotal * 100 : -1e9; break;
+        case 'profitPerUnit':  va = a.salesCount > 0 ? a.netProfit / a.salesCount : -1e9;     vb = b.salesCount > 0 ? b.netProfit / b.salesCount : -1e9; break;
+      }
+      if (typeof va === 'string') return dir * va.localeCompare(vb as string, 'ru');
+      return dir * ((va as number) - (vb as number));
+    });
+  }, [filteredRows, sortKey, sortDir, spendByArticle, analyticsByArticle]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
+    else { setSortKey(key); setSortDir('desc'); }
+  };
+
   const totalRevenue = useMemo(() =>
     filteredRows.reduce((s, r) => s + r.netSales, 0), [filteredRows]);
   const totalProfit = useMemo(() =>
     filteredRows.reduce((s, r) => s + r.netProfit, 0), [filteredRows]);
 
-  const cols = ['ABC','Артикул','Название','Прод.','Возвр.','Ср. цена','Выручка','Комиссия','Доставка','Партнёры','Хранение'];
+  const SortIcon = ({ sk }: { sk: SortKey }) => sortKey === sk
+    ? (sortDir === 'desc' ? <ChevronDown className="w-2.5 h-2.5 text-primary ml-0.5" /> : <ChevronUp className="w-2.5 h-2.5 text-primary ml-0.5" />)
+    : <ChevronsUpDown className="w-2.5 h-2.5 opacity-20 ml-0.5" />;
+
+  const Th = ({ sk, label, className, title }: { sk: SortKey; label: React.ReactNode; className?: string; title?: string }) => (
+    <th title={title} onClick={() => toggleSort(sk)}
+      className={`px-3 py-2 font-medium text-muted-foreground whitespace-nowrap cursor-pointer select-none hover:text-foreground transition-colors ${className ?? 'text-right'} ${sortKey === sk ? 'text-foreground' : ''}`}>
+      <span className={`flex items-center gap-0 ${(className ?? 'text-right').includes('text-left') ? '' : 'justify-end'}`}>
+        {label}<SortIcon sk={sk} />
+      </span>
+    </th>
+  );
 
   return (
     <>
@@ -269,47 +324,44 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
       <table className="w-full text-xs border-collapse">
         <thead className="sticky top-[33px] z-10 bg-card">
           <tr className="border-b border-border">
-            {cols.map(h => (
-              <th key={h} className={`px-3 py-2 font-medium text-muted-foreground whitespace-nowrap ${h === 'Артикул' || h === 'Название' ? 'text-left' : h === 'ABC' ? 'text-center' : 'text-right'}`}>{h}</th>
-            ))}
+            <th className="px-3 py-2 font-medium text-muted-foreground whitespace-nowrap text-center">ABC</th>
+            <Th sk="article"          label="Артикул"    className="text-left" />
+            <Th sk="name"             label="Название"   className="text-left" />
+            <Th sk="salesCount"       label="Прод." />
+            <Th sk="returnsCount"     label="Возвр." />
+            <Th sk="avgPrice"         label="Ср. цена" />
+            <Th sk="netSales"         label="Выручка" />
+            <Th sk="ozonCommission"   label="Комиссия" />
+            <Th sk="deliveryServices" label="Доставка" />
+            <Th sk="agentServices"    label="Партнёры" />
+            <Th sk="storage"          label="Хранение" />
             {hasDrrData && (
-              <th className="text-right px-3 py-2 font-medium whitespace-nowrap">
-                <span className="text-yellow-400/80 flex items-center justify-end gap-1">
+              <Th sk="drr" label={
+                <span className="text-yellow-400/80 flex items-center gap-1">
                   <Megaphone className="w-2.5 h-2.5" />ДРР%
-                  {!hasPerfData && <span className="text-[9px] text-muted-foreground/50 ml-0.5">(из транз.)</span>}
+                  {!hasPerfData && <span className="text-[9px] text-muted-foreground/50">(транз.)</span>}
                 </span>
-              </th>
+              } />
             )}
             {hasAnalytics && (
               <>
-                <th className="text-right px-3 py-2 font-medium whitespace-nowrap">
-                  <span className="text-sky-400/80 flex items-center justify-end gap-1">
-                    <Eye className="w-2.5 h-2.5" />Просм.
-                  </span>
-                </th>
-                <th className="text-right px-3 py-2 font-medium whitespace-nowrap">
-                  <span className="text-sky-400/80">В корз.%</span>
-                </th>
-                <th className="text-right px-3 py-2 font-medium whitespace-nowrap">
-                  <span className="text-sky-400/80">Выкуп%</span>
-                </th>
+                <Th sk="views"    label={<span className="text-sky-400/80 flex items-center gap-1"><Eye className="w-2.5 h-2.5" />Просм.</span>} />
+                <Th sk="cartPct"  label={<span className="text-sky-400/80">В корз.%</span>} />
+                <Th sk="buyoutPct" label={<span className="text-sky-400/80">Выкуп%</span>} />
               </>
             )}
             <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">
               <span className="flex items-center justify-end gap-1">Себест. <Pencil className="w-2.5 h-2.5 text-primary/60" /></span>
             </th>
-            {['Налог','Прибыль'].map(h => (
-              <th key={h} className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
-            ))}
-            <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Маржа</th>
-            <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap" title="Прибыль / Себестоимость × 100%">
-              <span className="text-emerald-400/80">М/закуп.</span>
-            </th>
-            <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">Приб./шт</th>
+            <Th sk="taxAmount"    label="Налог" />
+            <Th sk="netProfit"    label="Прибыль" />
+            <Th sk="marginPercent" label="Маржа" />
+            <Th sk="costMargin"   label={<span className="text-emerald-400/80">М/закуп.</span>} title="Прибыль / Себестоимость × 100%" />
+            <Th sk="profitPerUnit" label="Приб./шт" />
           </tr>
         </thead>
         <tbody>
-          {filteredRows.map((row, idx) => {
+          {sortedRows.map((row, idx) => {
             const isEditing = editingArticle === row.article;
             const c   = costs[row.article] ?? { costPerUnit: 0, vatRate: 0 };
             const abc = abcMap.get(row.article);
