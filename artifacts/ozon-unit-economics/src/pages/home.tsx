@@ -414,10 +414,10 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
 
 // ─── Performance API bar ──────────────────────────────────────────────────────
 function PerfApiBar({ clientId, setClientId, clientSecret, setClientSecret,
-  loading, error, hasData, onLoad, onClear, onLoadFromAnalytics, canLoadFromAnalytics }: {
+  loading, progress, error, hasData, onLoad, onClear, onLoadFromAnalytics, canLoadFromAnalytics }: {
   clientId: string; setClientId: (v: string) => void;
   clientSecret: string; setClientSecret: (v: string) => void;
-  loading: boolean; error: string | null; hasData: boolean;
+  loading: boolean; progress: string | null; error: string | null; hasData: boolean;
   onLoad: () => void; onClear: () => void;
   onLoadFromAnalytics?: () => void;
   canLoadFromAnalytics?: boolean;
@@ -484,10 +484,18 @@ function PerfApiBar({ clientId, setClientId, clientSecret, setClientSecret,
           <button onClick={onLoad} disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-700 hover:bg-yellow-600 text-white disabled:opacity-50 transition-colors font-medium">
             {loading
-              ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" />Загружаю…</>
+              ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" />{progress ?? 'Загружаю…'}</>
               : <><TrendingUp className="w-3.5 h-3.5" />Загрузить</>
             }
           </button>
+        </div>
+      )}
+
+      {/* Progress indicator for Analytics API load */}
+      {loading && progress && !expanded && (
+        <div className="mx-4 mb-2 flex items-center gap-2 text-yellow-400/80 text-[10px]">
+          <RefreshCw className="w-3 h-3 animate-spin flex-shrink-0" />
+          <span>{progress}</span>
         </div>
       )}
 
@@ -923,7 +931,7 @@ function OzonTabContent({ mp, api }: {
           <PerfApiBar
             clientId={perfApi.clientId}       setClientId={perfApi.setClientId}
             clientSecret={perfApi.clientSecret} setClientSecret={perfApi.setClientSecret}
-            loading={perfApi.loading} error={perfApi.error}
+            loading={perfApi.loading} progress={perfApi.progress} error={perfApi.error}
             hasData={!!perfApi.report}
             onLoad={() => perfApi.load(perfDateFrom, perfDateTo)}
             onClear={perfApi.clear}

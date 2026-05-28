@@ -4,6 +4,8 @@ const LS     = (k: string) => `perf_api_${k}`;
 const LS_SEL = (k: string) => `ozon_api_${k}`;
 
 const REPORT_KEY = 'perf_api_report_v2';
+const POLL_INTERVAL_MS = 2_000;
+const POLL_MAX_ATTEMPTS = 150; // 5 minutes
 
 export interface PerfCampaign {
   id: string;
@@ -38,9 +40,10 @@ function loadCachedReport(): PerfReport | null {
 export function usePerfApi() {
   const [clientId,     setClientIdState]     = useState(() => localStorage.getItem(LS('client_id'))     ?? '');
   const [clientSecret, setClientSecretState] = useState(() => localStorage.getItem(LS('client_secret')) ?? '');
-  const [loading,  setLoading] = useState(false);
-  const [error,    setError]   = useState<string | null>(null);
-  const [report,   setReport]  = useState<PerfReport | null>(loadCachedReport);
+  const [loading,   setLoading]  = useState(false);
+  const [progress,  setProgress] = useState<string | null>(null);
+  const [error,     setError]    = useState<string | null>(null);
+  const [report,    setReport]   = useState<PerfReport | null>(loadCachedReport);
 
   // Persist report to localStorage — only when it contains actual spend data
   useEffect(() => {
@@ -48,8 +51,7 @@ export function usePerfApi() {
       const hasSpend = report && Object.keys(report.spendByArticle).length > 0;
       if (hasSpend) localStorage.setItem(REPORT_KEY, JSON.stringify(report));
       else if (!report) localStorage.removeItem(REPORT_KEY);
-      // if report exists but spendByArticle is empty — leave localStorage unchanged
-    } catch { /* quota exceeded — ignore */ }
+    } catch { /* quota exceeded */ }
   }, [report]);
 
   const setClientId = (v: string) => {
@@ -59,11 +61,11 @@ export function usePerfApi() {
     setClientSecretState(v); localStorage.setItem(LS('client_secret'), v);
   };
 
-  /** Load via Ozon Performance API (separate credentials) */
+  /** Load via Ozon Performance API (async job — avoids proxy 120s timeout) */
   const load = useCallback(async (dateFrom: string, dateTo: string) => {
     if (!clientId.trim())     { setError('Введите Client-Id (Performance API)'); return; }
     if (!clientSecret.trim()) { setError('Введите Client-Secret (Performance API)'); return; }
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setProgress('Запуск…');
     try {
       const sellerClientId = localStorage.getItem(LS_SEL('client_id')) ?? '';
       const sellerApiKey   = localStorage.getItem(LS_SEL('api_key'))   ?? '';
@@ -76,24 +78,52 @@ export function usePerfApi() {
       if (sellerClientId) headers['X-Ozon-Client-Id'] = sellerClientId;
       if (sellerApiKey)   headers['X-Ozon-Api-Key']   = sellerApiKey;
 
-      const resp = await fetch('/api/ozon/performance-report', {
+      // Step 1: start background job, get jobId immediately
+      const startResp = await fetch('/api/ozon/performance-report', {
         method: 'POST',
         headers,
         body: JSON.stringify({ dateFrom, dateTo }),
       });
-      const data = await resp.json() as PerfReport & { error?: string };
-      if (!resp.ok) throw new Error(data.error ?? `Ошибка ${resp.status}`);
-      const newSpend = data.spendByArticle ?? {};
-      // Don't overwrite good cached data with an empty result (e.g. stats timed out on Ozon side)
-      if (Object.keys(newSpend).length === 0) {
-        setError('Данные о расходах не получены (Ozon ещё формирует отчёт). Попробуйте ещё раз.');
-        return;
+      const startData = await startResp.json() as { jobId?: string; error?: string };
+      if (!startResp.ok || !startData.jobId) {
+        throw new Error(startData.error ?? `Ошибка ${startResp.status}`);
       }
-      setReport({ ...data, source: 'performance' });
+      const { jobId } = startData;
+
+      // Step 2: poll job status
+      const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+      for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
+        await sleep(POLL_INTERVAL_MS);
+        const pollResp = await fetch(`/api/ozon/performance-report/job/${jobId}`);
+        const poll = await pollResp.json() as {
+          status:   'running' | 'done' | 'error';
+          progress: string;
+          result?:  PerfReport;
+          error?:   string;
+        };
+
+        setProgress(poll.progress ?? 'Обработка…');
+
+        if (poll.status === 'done') {
+          const newSpend = poll.result?.spendByArticle ?? {};
+          if (Object.keys(newSpend).length === 0) {
+            setError('Данные о расходах не получены (Ozon не вернул данные за период). Попробуйте ещё раз.');
+          } else {
+            setReport({ ...poll.result!, source: 'performance' });
+          }
+          return;
+        }
+
+        if (poll.status === 'error') {
+          throw new Error(poll.error ?? 'Неизвестная ошибка');
+        }
+      }
+
+      setError('Таймаут ожидания ответа Ozon (>5 мин). Ozon занят — попробуйте позже.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка загрузки Performance API');
     } finally {
-      setLoading(false);
+      setLoading(false); setProgress(null);
     }
   }, [clientId, clientSecret]);
 
@@ -111,12 +141,12 @@ export function usePerfApi() {
       setError('Нужны Seller API credentials — введите Client-Id и API-Key выше');
       return;
     }
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setProgress(null);
     try {
       const resp = await fetch('/api/ozon/adv-spend-by-sku', {
         method: 'POST',
         headers: {
-          'Content-Type':   'application/json',
+          'Content-Type':     'application/json',
           'X-Ozon-Client-Id': sellerClientId.trim(),
           'X-Ozon-Api-Key':   sellerApiKey.trim(),
         },
@@ -136,7 +166,6 @@ export function usePerfApi() {
 
       if (skuCount === 0) {
         setError('Данные о рекламных расходах не найдены за указанный период (метрика adv_sum_all = 0 для всех товаров)');
-        setLoading(false);
         return;
       }
 
@@ -148,12 +177,12 @@ export function usePerfApi() {
     }
   }, []);
 
-  const clear = useCallback(() => { setReport(null); setError(null); }, []);
+  const clear = useCallback(() => { setReport(null); setError(null); setProgress(null); }, []);
 
   return {
     clientId, setClientId,
     clientSecret, setClientSecret,
-    loading, error, report,
+    loading, progress, error, report,
     load, loadFromAnalytics, clear,
   };
 }
