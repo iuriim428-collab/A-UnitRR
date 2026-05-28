@@ -1623,14 +1623,16 @@ export default function Home() {
   const wb         = useWildberries(tax, setTax);
 
   // ── Compare selection state ──────────────────────────────────────────────────
-  const [compareSelection, setCompareSelection] = useState<Map<string, SelectedItem>>(new Map());
+  // Store only identifiers; live row data is resolved at render time so compare
+  // tab always reflects the current calculated values (not a stale snapshot).
+  const [compareSelection, setCompareSelection] = useState<Map<string, { mp: MpKey; article: string }>>(new Map());
 
   const toggleCompareItem = useCallback((mp: MpKey, row: CalculatedRow) => {
     const key = `${mp}:${row.article}`;
     setCompareSelection(prev => {
       const next = new Map(prev);
       if (next.has(key)) next.delete(key);
-      else next.set(key, { mp, row });
+      else next.set(key, { mp, article: row.article });
       return next;
     });
   }, []);
@@ -1640,21 +1642,38 @@ export default function Home() {
 
   const ozonSelectedSet = useMemo(() => {
     const s = new Set<string>();
-    for (const v of compareSelection.values()) if (v.mp === 'ozon') s.add(v.row.article);
+    for (const v of compareSelection.values()) if (v.mp === 'ozon') s.add(v.article);
     return s;
   }, [compareSelection]);
   const ymSelectedSet = useMemo(() => {
     const s = new Set<string>();
-    for (const v of compareSelection.values()) if (v.mp === 'ym') s.add(v.row.article);
+    for (const v of compareSelection.values()) if (v.mp === 'ym') s.add(v.article);
     return s;
   }, [compareSelection]);
   const wbSelectedSet = useMemo(() => {
     const s = new Set<string>();
-    for (const v of compareSelection.values()) if (v.mp === 'wb') s.add(v.row.article);
+    for (const v of compareSelection.values()) if (v.mp === 'wb') s.add(v.article);
     return s;
   }, [compareSelection]);
 
-  const compareItems = useMemo(() => Array.from(compareSelection.values()), [compareSelection]);
+  // Live row lookups — resolve identifiers against current calculatedRows
+  const liveOzonRows = ozonFile.calculatedRows.length > 0 ? ozonFile.calculatedRows : ozonApi.calculatedRows;
+  const liveYmRows   = yandexFile.calculatedRows.length > 0 ? yandexFile.calculatedRows : ymApi.calculatedRows;
+  const liveWbRows   = wb.calculatedRows;
+
+  const compareItems = useMemo((): SelectedItem[] => {
+    const byMp: Record<MpKey, Map<string, CalculatedRow>> = {
+      ozon: new Map(liveOzonRows.map(r => [r.article, r])),
+      ym:   new Map(liveYmRows.map(r => [r.article, r])),
+      wb:   new Map(liveWbRows.map(r => [r.article, r])),
+    };
+    const result: SelectedItem[] = [];
+    for (const { mp, article } of compareSelection.values()) {
+      const row = byMp[mp].get(article);
+      if (row) result.push({ mp, row });
+    }
+    return result;
+  }, [compareSelection, liveOzonRows, liveYmRows, liveWbRows]);
 
   // SKU counts from whichever source has data
   const skuCounts: Record<TabId, number> = {
