@@ -348,16 +348,31 @@ router.post("/ozon/performance-report", async (req, res) => {
     for (let i = 0; i < campIdsInt.length; i += 10) {
       const chunk = campIdsInt.slice(i, i + 10);
       try {
-        // Step A: create report task
-        const createResp = await fetch(`${PERF_BASE}/api/client/statistics/json`, {
-          method: "POST",
-          headers: { Authorization: auth, "Content-Type": "application/json" },
-          body: JSON.stringify({ campaigns: chunk, dateFrom, dateTo, groupBy: "NO_GROUP_BY" }),
-          signal: AbortSignal.timeout(15_000),
-        });
-        const createData = await createResp.json() as { UUID?: string; error?: string };
-        if (!createResp.ok || !createData.UUID) {
+        // Step A: create report task.
+        // Ozon allows only 1 active stats task at a time → retry on 429 with backoff.
+        let createResp!: Response;
+        let createData: { UUID?: string; error?: string } = {};
+        let created = false;
+        for (let retry = 0; retry < 8; retry++) {
+          if (retry > 0) {
+            const wait = retry <= 3 ? 5_000 : 10_000;
+            req.log.info({ retry, wait, chunk: chunk.slice(0, 3) }, "perf stats 429 retry");
+            await sleep(wait);
+          }
+          createResp = await fetch(`${PERF_BASE}/api/client/statistics/json`, {
+            method: "POST",
+            headers: { Authorization: auth, "Content-Type": "application/json" },
+            body: JSON.stringify({ campaigns: chunk, dateFrom, dateTo, groupBy: "NO_GROUP_BY" }),
+            signal: AbortSignal.timeout(15_000),
+          });
+          createData = await createResp.json() as { UUID?: string; error?: string };
+          if (createResp.ok && createData.UUID) { created = true; break; }
+          if (createResp.status === 429) continue; // wait and retry
           req.log.warn({ status: createResp.status, body: JSON.stringify(createData).slice(0, 200) }, "perf stats create failed");
+          break;
+        }
+        if (!created || !createData.UUID) {
+          req.log.warn({ status: createResp?.status, body: JSON.stringify(createData).slice(0, 200) }, "perf stats create gave up");
           continue;
         }
         const uuid = createData.UUID;
