@@ -10,6 +10,14 @@
  *  order.commissions[]    — [{type:'AUCTION_PROMOTION'|'MARKETPLACE_OFFER'|..., actual}]
  *                           actual is a monetary AMOUNT in rubles (not a rate/percentage)
  *  item.shopSku           — seller article
+ *
+ * Commission type mapping:
+ *  MARKETPLACE_OFFER                              → ozonCommission
+ *  AUCTION_PROMOTION                              → promotion
+ *  DELIVERY_TO_CUSTOMER, DELIVERY, DELIVERY_SUBSIDY,
+ *  EXPRESS_DELIVERY_RECIPIENT, EXPRESS_DELIVERY   → deliveryServices
+ *  RETURN_PROCESSING, CANCELLED_RETURN_PROCESSING → returnProcessing
+ *  everything else                                → otherExpenses
  */
 import { OzonReportRow } from '../types';
 
@@ -29,7 +37,7 @@ interface YMItem {
 }
 
 interface YMCommission {
-  type: string;   // 'MARKETPLACE_OFFER' | 'AUCTION_PROMOTION' | etc.
+  type: string;   // 'MARKETPLACE_OFFER' | 'AUCTION_PROMOTION' | 'DELIVERY_TO_CUSTOMER' | etc.
   actual: number; // monetary amount in RUB (not a percentage)
 }
 
@@ -49,6 +57,49 @@ const RETURN_STATUSES = new Set([
   'RETURNED', 'PARTIALLY_RETURNED', 'CANCELLED_IN_DELIVERY',
 ]);
 
+// ─── Commission type classification ───────────────────────────────────────────
+type CommField = 'ozonCommission' | 'promotion' | 'deliveryServices' | 'returnProcessing' | 'otherExpenses';
+
+function classifyCommission(type: string): CommField {
+  switch (type) {
+    case 'MARKETPLACE_OFFER':
+      return 'ozonCommission';
+    case 'AUCTION_PROMOTION':
+      return 'promotion';
+    case 'DELIVERY_TO_CUSTOMER':
+    case 'DELIVERY':
+    case 'DELIVERY_SUBSIDY':
+    case 'EXPRESS_DELIVERY_RECIPIENT':
+    case 'EXPRESS_DELIVERY':
+      return 'deliveryServices';
+    case 'RETURN_PROCESSING':
+    case 'CANCELLED_RETURN_PROCESSING':
+      return 'returnProcessing';
+    default:
+      return 'otherExpenses';
+  }
+}
+
+interface CommBreakdown {
+  ozonCommission: number;
+  promotion: number;
+  deliveryServices: number;
+  returnProcessing: number;
+  otherExpenses: number;
+}
+
+function orderCommissionBreakdown(order: YMOrder): CommBreakdown {
+  const result: CommBreakdown = {
+    ozonCommission: 0, promotion: 0, deliveryServices: 0,
+    returnProcessing: 0, otherExpenses: 0,
+  };
+  if (!order.commissions?.length) return result;
+  for (const c of order.commissions) {
+    result[classifyCommission(c.type)] += c.actual ?? 0;
+  }
+  return result;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Revenue per item: prefer MARKETPLACE (what seller receives), fall back to BUYER. */
@@ -58,12 +109,6 @@ function itemRevenue(item: YMItem): number {
   const buyer = item.prices?.find(p => p.type === 'BUYER');
   if (buyer) return buyer.total;
   return 0;
-}
-
-/** Total commission amount (in RUB) for the whole order across all commission types. */
-function orderCommissionTotal(order: YMOrder): number {
-  if (!order.commissions?.length) return 0;
-  return order.commissions.reduce((sum, c) => sum + (c.actual ?? 0), 0);
 }
 
 // ─── Fetch ────────────────────────────────────────────────────────────────────
@@ -102,9 +147,11 @@ export function parseYMOrders(orders: YMOrder[]): OzonReportRow[] {
     const isReturn    = RETURN_STATUSES.has(order.status);
     if (!isDelivered && !isReturn) continue;
 
-    // Commission is an order-level amount; distribute proportionally by revenue
+    // Break down order-level commissions by type
+    const breakdown = orderCommissionBreakdown(order);
+
+    // Distribute order-level amounts proportionally by item revenue share
     const orderTotalRevenue = items.reduce((s, it) => s + itemRevenue(it), 0);
-    const orderCommission   = orderCommissionTotal(order);
 
     for (const item of items) {
       const article = (item.shopSku || 'unknown').trim();
@@ -125,33 +172,44 @@ export function parseYMOrders(orders: YMOrder[]): OzonReportRow[] {
       }
       if (!acc[article].name && item.offerName) acc[article].name = item.offerName;
 
-      const r          = acc[article];
-      const qty        = item.count || 0;
-      const lineRev    = itemRevenue(item);
+      const r       = acc[article];
+      const qty     = item.count || 0;
+      const lineRev = itemRevenue(item);
 
-      // Proportional share of order commission for this line item
-      const lineShare  = orderTotalRevenue > 0 ? lineRev / orderTotalRevenue : 1 / items.length;
-      const lineComm   = orderCommission * lineShare;
+      // Proportional share of this item vs order total
+      const lineShare = orderTotalRevenue > 0 ? lineRev / orderTotalRevenue : 1 / items.length;
 
       if (isDelivered) {
         r.salesCount    += qty;
         r.ordersCount   += qty;
         r.ordersSum     += lineRev;
-        r.ozonCommission += lineComm;
+        r.ozonCommission    += breakdown.ozonCommission    * lineShare;
+        r.promotion         += breakdown.promotion         * lineShare;
+        r.deliveryServices  += breakdown.deliveryServices  * lineShare;
+        r.returnProcessing  += breakdown.returnProcessing  * lineShare;
+        r.otherExpenses     += breakdown.otherExpenses     * lineShare;
       }
 
       if (isReturn) {
         r.returnsCount  += qty;
         r.returnsSum    += lineRev;
-        r.ozonCommission -= lineComm;
+        r.ozonCommission    -= breakdown.ozonCommission    * lineShare;
+        r.promotion         -= breakdown.promotion         * lineShare;
+        r.deliveryServices  -= breakdown.deliveryServices  * lineShare;
+        r.returnProcessing  -= breakdown.returnProcessing  * lineShare;
+        r.otherExpenses     -= breakdown.otherExpenses     * lineShare;
       }
     }
   }
 
-  // Compute netSales; floor commission at 0
+  // Compute netSales; floor negative fields at 0
   for (const r of Object.values(acc)) {
     r.netSales = r.ordersSum - r.returnsSum;
-    if (r.ozonCommission < 0) r.ozonCommission = 0;
+    if (r.ozonCommission  < 0) r.ozonCommission  = 0;
+    if (r.promotion       < 0) r.promotion       = 0;
+    if (r.deliveryServices < 0) r.deliveryServices = 0;
+    if (r.returnProcessing < 0) r.returnProcessing = 0;
+    if (r.otherExpenses   < 0) r.otherExpenses   = 0;
   }
 
   return Object.values(acc).filter(r => r.ordersCount > 0 || r.returnsCount > 0);
