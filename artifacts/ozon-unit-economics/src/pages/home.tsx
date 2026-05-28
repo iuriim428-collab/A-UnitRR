@@ -277,10 +277,16 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
     else { setSortKey(key); setSortDir('desc'); }
   };
 
-  const totalRevenue    = useMemo(() => filteredRows.reduce((s, r) => s + r.netSales,    0), [filteredRows]);
-  const totalProfit     = useMemo(() => filteredRows.reduce((s, r) => s + r.netProfit,   0), [filteredRows]);
-  const totalSales      = useMemo(() => filteredRows.reduce((s, r) => s + r.salesCount,  0), [filteredRows]);
-  const totalReturns    = useMemo(() => filteredRows.reduce((s, r) => s + r.returnsCount, 0), [filteredRows]);
+  const totalRevenue    = useMemo(() => filteredRows.reduce((s, r) => s + r.netSales,         0), [filteredRows]);
+  const totalProfit     = useMemo(() => filteredRows.reduce((s, r) => s + r.netProfit,        0), [filteredRows]);
+  const totalSales      = useMemo(() => filteredRows.reduce((s, r) => s + r.salesCount,       0), [filteredRows]);
+  const totalReturns    = useMemo(() => filteredRows.reduce((s, r) => s + r.returnsCount,     0), [filteredRows]);
+  const totalCommission = useMemo(() => filteredRows.reduce((s, r) => s + r.ozonCommission,   0), [filteredRows]);
+  const totalDelivery   = useMemo(() => filteredRows.reduce((s, r) => s + r.deliveryServices, 0), [filteredRows]);
+  const totalAgent      = useMemo(() => filteredRows.reduce((s, r) => s + r.agentServices,    0), [filteredRows]);
+  const totalStorage    = useMemo(() => filteredRows.reduce((s, r) => s + r.storage + r.fboServices, 0), [filteredRows]);
+  const totalCost       = useMemo(() => filteredRows.reduce((s, r) => s + r.costTotal,        0), [filteredRows]);
+  const totalTax        = useMemo(() => filteredRows.reduce((s, r) => s + r.taxAmount,        0), [filteredRows]);
 
   const SortIcon = ({ sk }: { sk: SortKey }) => sortKey === sk
     ? (sortDir === 'desc' ? <ChevronDown className="w-2.5 h-2.5 text-primary ml-0.5" /> : <ChevronUp className="w-2.5 h-2.5 text-primary ml-0.5" />)
@@ -455,10 +461,26 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
             <td className="px-3 py-1.5 text-right tabular-nums font-bold text-foreground">
               {formatCurrency(totalRevenue)}
             </td>
-            <td colSpan={hasDrrData ? 5 : 4} />
+            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-orange-400/80">
+              {totalCommission > 0 ? `-${formatCurrency(totalCommission)}` : '—'}
+            </td>
+            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-blue-400/80">
+              {totalDelivery > 0 ? `-${formatCurrency(totalDelivery)}` : '—'}
+            </td>
+            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-purple-400/80">
+              {totalAgent > 0 ? `-${formatCurrency(totalAgent)}` : '—'}
+            </td>
+            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-cyan-400/80">
+              {totalStorage > 0 ? `-${formatCurrency(totalStorage)}` : '—'}
+            </td>
+            {hasDrrData && <td />}
             {hasAnalytics && <td colSpan={3} />}
-            <td />
-            <td />
+            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-muted-foreground">
+              {totalCost > 0 ? `-${formatCurrency(totalCost)}` : '—'}
+            </td>
+            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-muted-foreground">
+              {totalTax > 0 ? `-${formatCurrency(totalTax)}` : '—'}
+            </td>
             <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
               {formatCurrency(totalProfit)}
             </td>
