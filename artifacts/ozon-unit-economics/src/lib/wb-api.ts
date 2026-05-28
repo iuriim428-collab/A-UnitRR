@@ -181,8 +181,10 @@ export async function fetchWBReport(
     } catch (err) {
       const isFallthrough = err instanceof TypeError ||
         (err instanceof DOMException && err.name === 'AbortError') ||
-        (err instanceof DOMException && err.name === 'TimeoutError');
-      if (!isFallthrough) throw err; // Real WB error (401, 429…) → surface to user
+        (err instanceof DOMException && err.name === 'TimeoutError') ||
+        // 429 Rate limit from browser-direct — fall through to local/server proxy
+        (err instanceof Error && /WB 429/.test(err.message));
+      if (!isFallthrough) throw err; // Real WB error (401, 403…) → surface to user
     }
   }
 
