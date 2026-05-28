@@ -207,7 +207,7 @@ function CostEditor({ article, costPerUnit, vatRate, onChangeCost, onChangeVat, 
 }
 
 // ─── SKU table ────────────────────────────────────────────────────────────────
-function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendByArticle, analyticsByArticle }: {
+function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendByArticle, analyticsByArticle, selectedArticles, onToggleSelect }: {
   rows: CalculatedRow[];
   costs: Record<string, { costPerUnit: number; vatRate: number }>;
   editingArticle: string | null;
@@ -215,6 +215,8 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
   updateCost: (article: string, field: 'costPerUnit' | 'vatRate', value: number) => void;
   spendByArticle?: Record<string, number>;
   analyticsByArticle?: Record<string, WBAnalyticsItem>;
+  selectedArticles?: Set<string>;
+  onToggleSelect?: (row: CalculatedRow) => void;
 }) {
   type SortKey = 'article' | 'name' | 'salesCount' | 'returnsCount' | 'avgPrice' | 'netSales'
     | 'ozonCommission' | 'deliveryServices' | 'agentServices' | 'storage' | 'drr'
@@ -330,6 +332,11 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
       <table className="w-full text-xs border-collapse">
         <thead className="sticky top-[33px] z-10 bg-card">
           <tr className="border-b border-border">
+            {onToggleSelect && (
+              <th className="w-8 px-2 py-2 text-center text-[9px] text-muted-foreground/40 font-normal">
+                {(selectedArticles?.size ?? 0) > 0 ? selectedArticles!.size : ''}
+              </th>
+            )}
             <th className="px-3 py-2 font-medium text-muted-foreground whitespace-nowrap text-center">ABC</th>
             <Th sk="article"          label="Артикул"    className="text-left" />
             <Th sk="name"             label="Название"   className="text-left" />
@@ -375,8 +382,18 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
             const perfSpend = spendByArticle?.[row.article] ?? (row.promotion ?? 0);
             const perfDrr   = (perfSpend > 0 && row.netSales > 0) ? (perfSpend / row.netSales) * 100 : 0;
             const costMargin = row.costTotal > 0 ? (row.netProfit / row.costTotal) * 100 : null;
+            const isSelected = selectedArticles?.has(row.article) ?? false;
             return (
-              <tr key={row.article} className={`border-b border-border/30 hover:bg-muted/20 ${idx % 2 ? 'bg-muted/5' : ''}`}>
+              <tr key={row.article} className={`border-b border-border/30 hover:bg-muted/20 ${isSelected ? 'bg-emerald-500/5' : idx % 2 ? 'bg-muted/5' : ''}`}>
+                {onToggleSelect && (
+                  <td className="w-8 px-2 py-1.5 text-center">
+                    <input type="checkbox" checked={isSelected}
+                      onChange={() => onToggleSelect(row)}
+                      onClick={e => e.stopPropagation()}
+                      className="w-3.5 h-3.5 cursor-pointer accent-emerald-500"
+                    />
+                  </td>
+                )}
                 <td className="px-2 py-1.5 text-center">
                   {abc && (
                     <span className={`inline-block w-5 text-center text-[10px] font-bold leading-5 ${ABC_STYLE[abc]}`}>
@@ -448,7 +465,7 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
         </tbody>
         <tfoot className="sticky bottom-0 z-10 bg-card border-t-2 border-border/60">
           <tr>
-            <td colSpan={3} className="px-3 py-1.5 text-[10px] text-muted-foreground/60 font-medium">
+            <td colSpan={onToggleSelect ? 4 : 3} className="px-3 py-1.5 text-[10px] text-muted-foreground/60 font-medium">
               {nameFilter ? `Итого (фильтр): ${filteredRows.length} SKU` : `Итого: ${rows.length} SKU`}
             </td>
             <td className="px-3 py-1.5 text-right tabular-nums font-bold text-foreground">
@@ -916,9 +933,11 @@ function ApiEmptyState({ icon, title, hint, steps }: {
 }
 
 // ─── Ozon tab ─────────────────────────────────────────────────────────────────
-function OzonTabContent({ mp, api }: {
+function OzonTabContent({ mp, api, selectedArticles, onToggleSelect }: {
   mp: ReturnType<typeof useMarketplace>;
   api: ReturnType<typeof useOzonApi>;
+  selectedArticles?: Set<string>;
+  onToggleSelect?: (row: CalculatedRow) => void;
 }) {
   const [mode, setMode] = useState<'files' | 'api'>(() =>
     (localStorage.getItem('ozon_tab_mode') as 'files' | 'api') ?? 'files'
@@ -1051,7 +1070,8 @@ function OzonTabContent({ mp, api }: {
               <SkuTable rows={active.calculatedRows} costs={active.costs}
                 editingArticle={editingArticle} setEditing={setEditingArticle}
                 updateCost={active.updateCost}
-                spendByArticle={perfApi.report?.spendByArticle} />
+                spendByArticle={perfApi.report?.spendByArticle}
+                selectedArticles={selectedArticles} onToggleSelect={onToggleSelect} />
             </div>
           </>
         ) : (
@@ -1079,9 +1099,11 @@ function OzonTabContent({ mp, api }: {
 }
 
 // ─── YM tab ───────────────────────────────────────────────────────────────────
-function YmTabContent({ mp, api }: {
+function YmTabContent({ mp, api, selectedArticles, onToggleSelect }: {
   mp:  ReturnType<typeof useMarketplace>;
   api: ReturnType<typeof useYmApi>;
+  selectedArticles?: Set<string>;
+  onToggleSelect?: (row: CalculatedRow) => void;
 }) {
   const [mode, setMode] = useState<'files' | 'api'>(() =>
     (localStorage.getItem('ym_tab_mode') as 'files' | 'api') ?? 'files'
@@ -1182,7 +1204,8 @@ function YmTabContent({ mp, api }: {
               <SkuTable rows={active.calculatedRows} costs={active.costs}
                 editingArticle={editingArticle} setEditing={setEditingArticle}
                 updateCost={active.updateCost}
-                spendByArticle={ymSpendByArticle} />
+                spendByArticle={ymSpendByArticle}
+                selectedArticles={selectedArticles} onToggleSelect={onToggleSelect} />
             </div>
           </>
         ) : (
@@ -1211,7 +1234,11 @@ function YmTabContent({ mp, api }: {
 }
 
 // ─── WB tab ───────────────────────────────────────────────────────────────────
-function WbTabContent({ wb }: { wb: ReturnType<typeof useWildberries> }) {
+function WbTabContent({ wb, selectedArticles, onToggleSelect }: {
+  wb: ReturnType<typeof useWildberries>;
+  selectedArticles?: Set<string>;
+  onToggleSelect?: (row: CalculatedRow) => void;
+}) {
   const [editingArticle, setEditingArticle] = useState<string | null>(null);
   const [adSpend, setAdSpendState] = useState<number>(() => parseFloat(localStorage.getItem('wb_ad_spend') ?? '0') || 0);
   const setAdSpend = (v: number) => { setAdSpendState(v); localStorage.setItem('wb_ad_spend', String(v)); };
@@ -1301,7 +1328,8 @@ function WbTabContent({ wb }: { wb: ReturnType<typeof useWildberries> }) {
                 editingArticle={editingArticle} setEditing={setEditingArticle}
                 updateCost={wb.updateCost}
                 spendByArticle={wb.hasAdvert ? wb.advertSpendByArticle : undefined}
-                analyticsByArticle={wb.hasAnalytics ? wb.analytics : undefined} />
+                analyticsByArticle={wb.hasAnalytics ? wb.analytics : undefined}
+                selectedArticles={selectedArticles} onToggleSelect={onToggleSelect} />
             </div>
           </>
         ) : (
@@ -1403,21 +1431,9 @@ const TABS: { id: TabId; label: string; badgeClass: string }[] = [
 
 type MpKey = 'ozon' | 'ym' | 'wb';
 
-interface MpProductData {
-  salesCount: number;
-  netSales: number;
-  marginPercent: number;
-  profitPerUnit: number;
-  netProfit: number;
-}
-
-interface CompareProductRow {
-  article: string;
-  name: string;
-  byMp: Partial<Record<MpKey, MpProductData>>;
-  mpCount: number;
-  totalSales: number;
-  totalProfit: number;
+interface SelectedItem {
+  mp: MpKey;
+  row: CalculatedRow;
 }
 
 const MP_META: Record<MpKey, { label: string; headerBg: string; borderLeft: string; badge: string }> = {
@@ -1443,106 +1459,56 @@ const MP_META: Record<MpKey, { label: string; headerBg: string; borderLeft: stri
 
 const COMPARE_MPS: MpKey[] = ['ozon', 'ym', 'wb'];
 
-function buildCompareRows(
-  ozonRows: CalculatedRow[],
-  ymRows: CalculatedRow[],
-  wbRows: CalculatedRow[],
-): CompareProductRow[] {
-  const map = new Map<string, CompareProductRow>();
-
-  const add = (rows: CalculatedRow[], mp: MpKey) => {
-    for (const r of rows) {
-      const key = r.article.toLowerCase().trim();
-      if (!map.has(key)) {
-        map.set(key, { article: r.article, name: r.name || '', byMp: {}, mpCount: 0, totalSales: 0, totalProfit: 0 });
-      }
-      const cr = map.get(key)!;
-      if (!cr.name && r.name) cr.name = r.name;
-      cr.byMp[mp] = {
-        salesCount:    r.salesCount,
-        netSales:      r.netSales,
-        marginPercent: r.marginPercent,
-        profitPerUnit: r.salesCount > 0 ? r.netProfit / r.salesCount : 0,
-        netProfit:     r.netProfit,
-      };
-    }
-  };
-
-  add(ozonRows, 'ozon');
-  add(ymRows,   'ym');
-  add(wbRows,   'wb');
-
-  const rows: CompareProductRow[] = [];
-  for (const cr of map.values()) {
-    cr.mpCount    = Object.keys(cr.byMp).length;
-    cr.totalSales  = Object.values(cr.byMp).reduce((s, d) => s + (d?.salesCount ?? 0), 0);
-    cr.totalProfit = Object.values(cr.byMp).reduce((s, d) => s + (d?.netProfit  ?? 0), 0);
-    rows.push(cr);
-  }
-  return rows;
-}
-
-function CompareTabContent({ ozonRows, ymRows, wbRows }: {
-  ozonRows: CalculatedRow[];
-  ymRows:   CalculatedRow[];
-  wbRows:   CalculatedRow[];
+function CompareTabContent({ items, onClear }: {
+  items: SelectedItem[];
+  onClear: () => void;
 }) {
-  type SortKey = 'article' | 'totalSales' | 'totalProfit' | 'mpCount';
-  const [sortKey,    setSortKey]    = useState<SortKey>('totalSales');
-  const [sortDir,    setSortDir]    = useState<'asc' | 'desc'>('desc');
-  const [minMpCount, setMinMpCount] = useState(1);
-  const [nameFilter, setNameFilter] = useState('');
-
-  const allRows = useMemo(() => buildCompareRows(ozonRows, ymRows, wbRows), [ozonRows, ymRows, wbRows]);
-
-  const mpStats = useMemo(() => {
-    const stats: Record<MpKey, { skuCount: number; bestCount: number }> = {
-      ozon: { skuCount: 0, bestCount: 0 },
-      ym:   { skuCount: 0, bestCount: 0 },
-      wb:   { skuCount: 0, bestCount: 0 },
-    };
-    for (const row of allRows) {
-      for (const mp of Object.keys(row.byMp) as MpKey[]) stats[mp].skuCount++;
-      if (row.mpCount >= 2) {
-        let bestMp: MpKey | null = null;
-        let hi = -Infinity;
-        for (const [mp, d] of Object.entries(row.byMp) as [MpKey, MpProductData][]) {
-          if (d.marginPercent > hi) { hi = d.marginPercent; bestMp = mp; }
-        }
-        if (bestMp) stats[bestMp].bestCount++;
-      }
-    }
-    return stats;
-  }, [allRows]);
-
-  const visibleRows = useMemo(() => {
-    const q = nameFilter.trim().toLowerCase();
-    let rows = allRows.filter(r => r.mpCount >= minMpCount);
-    if (q) rows = rows.filter(r => r.article.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
-    const dir = sortDir === 'desc' ? -1 : 1;
-    return [...rows].sort((a, b) => {
-      switch (sortKey) {
-        case 'article':     return dir * a.article.localeCompare(b.article);
-        case 'totalSales':  return dir * (a.totalSales  - b.totalSales);
-        case 'totalProfit': return dir * (a.totalProfit - b.totalProfit);
-        case 'mpCount':     return dir * (a.mpCount     - b.mpCount);
-        default:            return 0;
-      }
-    });
-  }, [allRows, minMpCount, nameFilter, sortKey, sortDir]);
+  type SortKey = 'margin' | 'profit' | 'sales' | 'mp';
+  const [sortKey, setSortKey] = useState<SortKey>('margin');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
     else { setSortKey(key); setSortDir('desc'); }
   };
 
-  if (allRows.length === 0) {
+  const sorted = useMemo(() => {
+    const dir = sortDir === 'desc' ? -1 : 1;
+    return [...items].sort((a, b) => {
+      switch (sortKey) {
+        case 'margin': return dir * (a.row.marginPercent - b.row.marginPercent);
+        case 'profit': return dir * (a.row.netProfit - b.row.netProfit);
+        case 'sales':  return dir * (a.row.salesCount - b.row.salesCount);
+        case 'mp':     return dir * COMPARE_MPS.indexOf(a.mp) - COMPARE_MPS.indexOf(b.mp);
+        default:       return 0;
+      }
+    });
+  }, [items, sortKey, sortDir]);
+
+  const perMp = useMemo(() => {
+    const m = new Map<MpKey, number>();
+    for (const { mp } of items) m.set(mp, (m.get(mp) ?? 0) + 1);
+    return m;
+  }, [items]);
+
+  const allMargins = items.map(i => i.row.marginPercent);
+  const maxMargin = allMargins.length > 1 ? Math.max(...allMargins) : null;
+  const minMargin = allMargins.length > 1 ? Math.min(...allMargins) : null;
+
+  const SortIcon = ({ sk }: { sk: SortKey }) => sortKey === sk
+    ? (sortDir === 'desc' ? <ChevronDown className="w-2.5 h-2.5 text-primary ml-0.5" /> : <ChevronUp className="w-2.5 h-2.5 text-primary ml-0.5" />)
+    : <ChevronsUpDown className="w-2.5 h-2.5 opacity-20 ml-0.5" />;
+
+  if (items.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        <div className="text-center space-y-3">
+        <div className="text-center space-y-4 max-w-sm px-6">
           <BarChart2 className="w-10 h-10 mx-auto opacity-20" />
-          <p className="text-sm">Нет данных для сравнения</p>
-          <p className="text-xs opacity-50">Загрузите данные по одному или нескольким маркетплейсам</p>
+          <p className="text-sm font-medium">Выберите товары для сравнения</p>
+          <p className="text-xs opacity-50 leading-relaxed">
+            Отметьте чекбоксы у нужных SKU на вкладках Ozon, Яндекс Маркет или Wildberries —
+            внизу появится панель с кнопкой «Сравнить»
+          </p>
         </div>
       </div>
     );
@@ -1550,134 +1516,89 @@ function CompareTabContent({ ozonRows, ymRows, wbRows }: {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* ── Top stats strip ── */}
+      {/* ── Header strip ── */}
       <div className="flex-none flex items-center gap-3 px-4 py-2 border-b border-border/40 bg-card text-[11px]">
         {COMPARE_MPS.map(mp => {
-          const s = mpStats[mp];
-          if (!s.skuCount) return null;
+          const count = perMp.get(mp) ?? 0;
+          if (!count) return null;
           return (
             <div key={mp} className={`flex items-center gap-2 px-3 py-1 border ${MP_META[mp].badge}`}>
               <span className="font-semibold">{MP_META[mp].label}</span>
-              <span className="opacity-70">{s.skuCount} SKU</span>
-              {s.bestCount > 0 && <span className="text-green-400 font-bold">🏆 {s.bestCount}</span>}
+              <span className="opacity-70">{count} SKU</span>
             </div>
           );
         })}
         <div className="flex-1" />
-        <span className="text-muted-foreground/50 text-[10px]">Показать:</span>
-        {([1, 2, 3] as const).map(n => (
-          <button key={n} onClick={() => setMinMpCount(n)}
-            className={`px-2 py-0.5 text-[10px] border transition-colors ${minMpCount === n ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-muted'}`}>
-            {n === 1 ? 'Все' : n === 2 ? '2+ МП' : '3 МП'}
-          </button>
-        ))}
-      </div>
-
-      {/* ── Search bar ── */}
-      <div className="flex-none px-3 py-1.5 border-b border-border/40 bg-card flex items-center gap-2">
-        <Search className="w-3.5 h-3.5 text-muted-foreground/40 flex-shrink-0" />
-        <input
-          type="text"
-          value={nameFilter}
-          onChange={e => setNameFilter(e.target.value)}
-          placeholder="Фильтр по артикулу или названию…"
-          className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/30"
-        />
-        {nameFilter && (
-          <button onClick={() => setNameFilter('')}>
-            <X className="w-3 h-3 text-muted-foreground/50 hover:text-foreground" />
-          </button>
-        )}
-        <span className="text-[10px] text-muted-foreground/40">{visibleRows.length} из {allRows.length}</span>
+        <button onClick={onClear}
+          className="flex items-center gap-1.5 px-2.5 py-1 text-muted-foreground hover:text-red-400 border border-border hover:border-red-500/30 transition-colors text-[10px]">
+          <Trash2 className="w-3 h-3" />Очистить выбор
+        </button>
       </div>
 
       {/* ── Table ── */}
       <div className="flex-1 overflow-auto">
         <table className="w-full text-xs border-collapse">
-          <thead className="sticky top-0 z-10">
-            <tr className="bg-card border-b border-border/60">
-              <th colSpan={2} className="bg-card" />
-              {COMPARE_MPS.map(mp => (
-                <th key={mp} colSpan={4}
-                  className={`px-3 py-1.5 text-center text-[10px] font-bold ${MP_META[mp].headerBg} ${MP_META[mp].borderLeft}`}>
-                  {MP_META[mp].label}
-                </th>
-              ))}
-              <th className="bg-card" />
-            </tr>
-            <tr className="bg-card border-b border-border">
+          <thead className="sticky top-0 z-10 bg-card border-b border-border">
+            <tr>
               <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground cursor-pointer select-none whitespace-nowrap"
-                onClick={() => toggleSort('article')}>
-                Артикул {sortKey === 'article' ? (sortDir === 'desc' ? '↓' : '↑') : <ChevronsUpDown className="inline w-2.5 h-2.5 opacity-30" />}
+                onClick={() => toggleSort('mp')}>
+                <span className="flex items-center">МП<SortIcon sk="mp" /></span>
               </th>
+              <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground whitespace-nowrap">Артикул</th>
               <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground whitespace-nowrap">Название</th>
-              {COMPARE_MPS.flatMap(mp => [
-                <th key={`${mp}-s`} className={`px-2 py-2 text-right text-[10px] font-medium text-muted-foreground whitespace-nowrap cursor-pointer select-none ${MP_META[mp].borderLeft}`}
-                  onClick={() => toggleSort('totalSales')}>
-                  Прод. {sortKey === 'totalSales' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
-                </th>,
-                <th key={`${mp}-r`} className="px-2 py-2 text-right text-[10px] font-medium text-muted-foreground whitespace-nowrap">Выручка</th>,
-                <th key={`${mp}-m`} className="px-2 py-2 text-right text-[10px] font-medium text-muted-foreground whitespace-nowrap">Маржа%</th>,
-                <th key={`${mp}-pp`} className="px-2 py-2 text-right text-[10px] font-medium text-muted-foreground whitespace-nowrap cursor-pointer select-none"
-                  onClick={() => toggleSort('totalProfit')}>
-                  Приб./шт {sortKey === 'totalProfit' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
-                </th>,
-              ])}
-              <th className="px-3 py-2 text-center text-[10px] font-medium text-muted-foreground whitespace-nowrap">
-                Лучший МП
+              <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground cursor-pointer select-none whitespace-nowrap"
+                onClick={() => toggleSort('sales')}>
+                <span className="flex items-center justify-end">Прод.<SortIcon sk="sales" /></span>
               </th>
+              <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground whitespace-nowrap">Выручка</th>
+              <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground whitespace-nowrap">Комиссия</th>
+              <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground whitespace-nowrap">Доставка</th>
+              <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground whitespace-nowrap">Хранение</th>
+              <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground whitespace-nowrap">Себест.</th>
+              <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground whitespace-nowrap">Налог</th>
+              <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground cursor-pointer select-none whitespace-nowrap"
+                onClick={() => toggleSort('profit')}>
+                <span className="flex items-center justify-end">Прибыль<SortIcon sk="profit" /></span>
+              </th>
+              <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground cursor-pointer select-none whitespace-nowrap"
+                onClick={() => toggleSort('margin')}>
+                <span className="flex items-center justify-end">Маржа%<SortIcon sk="margin" /></span>
+              </th>
+              <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground whitespace-nowrap">Приб./шт</th>
             </tr>
           </thead>
           <tbody>
-            {visibleRows.map((row, idx) => {
-              let bestMp:  MpKey | null = null;
-              let worstMp: MpKey | null = null;
-              if (row.mpCount >= 2) {
-                let hi = -Infinity, lo = Infinity;
-                for (const [mp, d] of Object.entries(row.byMp) as [MpKey, MpProductData][]) {
-                  if (d.marginPercent > hi) { hi = d.marginPercent; bestMp  = mp; }
-                  if (d.marginPercent < lo) { lo = d.marginPercent; worstMp = mp; }
-                }
-                if (bestMp === worstMp) worstMp = null;
-              }
+            {sorted.map(({ mp, row }, idx) => {
+              const isBest  = maxMargin !== null && row.marginPercent === maxMargin;
+              const isWorst = minMargin !== null && row.marginPercent === minMargin && minMargin < maxMargin!;
+              const marginCls = isBest
+                ? 'text-green-400 font-bold'
+                : isWorst
+                  ? 'text-red-400'
+                  : row.marginPercent > 20 ? 'text-green-400/70'
+                    : row.marginPercent > 5  ? 'text-yellow-400/80'
+                    : 'text-red-400/70';
+              const profitPerUnit = row.salesCount > 0 ? row.netProfit / row.salesCount : 0;
               return (
-                <tr key={row.article}
+                <tr key={`${mp}:${row.article}`}
                   className={`border-b border-border/20 hover:bg-muted/20 ${idx % 2 ? 'bg-muted/5' : ''}`}>
+                  <td className="px-3 py-1.5">
+                    <span className={`inline-block px-2 py-0.5 text-[9px] font-bold ${MP_META[mp].badge}`}>
+                      {MP_META[mp].label}
+                    </span>
+                  </td>
                   <td className="px-3 py-1.5 font-medium text-primary/80 whitespace-nowrap">{row.article}</td>
-                  <td className="px-3 py-1.5 text-muted-foreground max-w-[160px] truncate" title={row.name}>
-                    {row.name || '—'}
-                  </td>
-                  {COMPARE_MPS.flatMap(mp => {
-                    const d  = row.byMp[mp];
-                    const bl = MP_META[mp].borderLeft;
-                    if (!d) return [
-                      <td key={`${mp}-s`}  className={`px-2 py-1.5 text-right text-muted-foreground/20 ${bl}`}>—</td>,
-                      <td key={`${mp}-r`}  className="px-2 py-1.5 text-right text-muted-foreground/20">—</td>,
-                      <td key={`${mp}-m`}  className="px-2 py-1.5 text-right text-muted-foreground/20">—</td>,
-                      <td key={`${mp}-pp`} className="px-2 py-1.5 text-right text-muted-foreground/20">—</td>,
-                    ];
-                    const isBest  = mp === bestMp;
-                    const isWorst = mp === worstMp;
-                    const marginCls = isBest
-                      ? 'text-green-400 font-bold'
-                      : isWorst
-                        ? 'text-red-400'
-                        : d.marginPercent > 20 ? 'text-green-400/70'
-                          : d.marginPercent > 5  ? 'text-yellow-400/80'
-                          : 'text-red-400/70';
-                    const profitCls = d.profitPerUnit > 0 ? 'text-green-400/70' : 'text-red-400/70';
-                    return [
-                      <td key={`${mp}-s`}  className={`px-2 py-1.5 text-right tabular-nums ${bl}`}>{formatNumber(d.salesCount)}</td>,
-                      <td key={`${mp}-r`}  className="px-2 py-1.5 text-right tabular-nums text-muted-foreground/70">{formatCurrency(d.netSales)}</td>,
-                      <td key={`${mp}-m`}  className={`px-2 py-1.5 text-right tabular-nums ${marginCls}`}>{formatPercent(d.marginPercent)}</td>,
-                      <td key={`${mp}-pp`} className={`px-2 py-1.5 text-right tabular-nums ${profitCls}`}>{formatCurrency(d.profitPerUnit)}</td>,
-                    ];
-                  })}
-                  <td className="px-3 py-1.5 text-center">
-                    {bestMp
-                      ? <span className={`inline-block px-2 py-0.5 text-[9px] font-bold ${MP_META[bestMp].badge}`}>{MP_META[bestMp].label}</span>
-                      : <span className="text-muted-foreground/30 text-[10px]">—</span>}
-                  </td>
+                  <td className="px-3 py-1.5 text-muted-foreground max-w-[200px] truncate" title={row.name}>{row.name || '—'}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(row.salesCount)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums font-medium">{formatCurrency(row.netSales)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-orange-400/80">{row.ozonCommission > 0 ? `-${formatCurrency(row.ozonCommission)}` : '—'}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-blue-400/80">{row.deliveryServices > 0 ? `-${formatCurrency(row.deliveryServices)}` : '—'}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-cyan-400/80">{(row.storage + (row.fboServices ?? 0)) > 0 ? `-${formatCurrency(row.storage + (row.fboServices ?? 0))}` : '—'}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.costTotal > 0 ? `-${formatCurrency(row.costTotal)}` : '—'}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.taxAmount > 0 ? `-${formatCurrency(row.taxAmount)}` : '—'}</td>
+                  <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${row.netProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(row.netProfit)}</td>
+                  <td className={`px-3 py-1.5 text-right tabular-nums ${marginCls}`}>{formatPercent(row.marginPercent)}</td>
+                  <td className={`px-3 py-1.5 text-right tabular-nums ${profitPerUnit >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>{formatCurrency(profitPerUnit)}</td>
                 </tr>
               );
             })}
@@ -1701,29 +1622,46 @@ export default function Home() {
   const ymApi      = useYmApi(tax, setTax);
   const wb         = useWildberries(tax, setTax);
 
-  // Active calculated rows for compare tab (file-based wins over API if both loaded)
-  const ozonCalcRows = useMemo(
-    () => ozonFile.calculatedRows.length  > 0 ? ozonFile.calculatedRows  : ozonApi.calculatedRows,
-    [ozonFile.calculatedRows, ozonApi.calculatedRows],
-  );
-  const ymCalcRows = useMemo(
-    () => yandexFile.calculatedRows.length > 0 ? yandexFile.calculatedRows : ymApi.calculatedRows,
-    [yandexFile.calculatedRows, ymApi.calculatedRows],
-  );
-  const wbCalcRows = wb.calculatedRows;
+  // ── Compare selection state ──────────────────────────────────────────────────
+  const [compareSelection, setCompareSelection] = useState<Map<string, SelectedItem>>(new Map());
 
-  const compareSkuCount = useMemo(() => {
+  const toggleCompareItem = useCallback((mp: MpKey, row: CalculatedRow) => {
+    const key = `${mp}:${row.article}`;
+    setCompareSelection(prev => {
+      const next = new Map(prev);
+      if (next.has(key)) next.delete(key);
+      else next.set(key, { mp, row });
+      return next;
+    });
+  }, []);
+
+  const clearCompare = useCallback(() => setCompareSelection(new Map()), []);
+  const openCompare  = useCallback(() => setActiveTab('compare'), []);
+
+  const ozonSelectedSet = useMemo(() => {
     const s = new Set<string>();
-    [...ozonCalcRows, ...ymCalcRows, ...wbCalcRows].forEach(r => s.add(r.article.toLowerCase().trim()));
-    return s.size;
-  }, [ozonCalcRows, ymCalcRows, wbCalcRows]);
+    for (const v of compareSelection.values()) if (v.mp === 'ozon') s.add(v.row.article);
+    return s;
+  }, [compareSelection]);
+  const ymSelectedSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const v of compareSelection.values()) if (v.mp === 'ym') s.add(v.row.article);
+    return s;
+  }, [compareSelection]);
+  const wbSelectedSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const v of compareSelection.values()) if (v.mp === 'wb') s.add(v.row.article);
+    return s;
+  }, [compareSelection]);
+
+  const compareItems = useMemo(() => Array.from(compareSelection.values()), [compareSelection]);
 
   // SKU counts from whichever source has data
   const skuCounts: Record<TabId, number> = {
     ozon:        ozonFile.rows.length  || ozonApi.rows.length,
     yandex:      yandexFile.rows.length || ymApi.rows.length,
     wildberries: wb.rows.length,
-    compare:     compareSkuCount,
+    compare:     compareItems.length,
   };
 
   return (
@@ -1798,10 +1736,42 @@ export default function Home() {
       </header>
 
       {/* CONTENT */}
-      {activeTab === 'ozon'        && <OzonTabContent  mp={ozonFile}   api={ozonApi} />}
-      {activeTab === 'yandex'      && <YmTabContent    mp={yandexFile} api={ymApi}   />}
-      {activeTab === 'wildberries' && <WbTabContent    wb={wb} />}
-      {activeTab === 'compare'     && <CompareTabContent ozonRows={ozonCalcRows} ymRows={ymCalcRows} wbRows={wbCalcRows} />}
+      {activeTab === 'ozon'        && <OzonTabContent  mp={ozonFile}   api={ozonApi}
+        selectedArticles={ozonSelectedSet} onToggleSelect={r => toggleCompareItem('ozon', r)} />}
+      {activeTab === 'yandex'      && <YmTabContent    mp={yandexFile} api={ymApi}
+        selectedArticles={ymSelectedSet}   onToggleSelect={r => toggleCompareItem('ym', r)} />}
+      {activeTab === 'wildberries' && <WbTabContent    wb={wb}
+        selectedArticles={wbSelectedSet}   onToggleSelect={r => toggleCompareItem('wb', r)} />}
+      {activeTab === 'compare'     && <CompareTabContent items={compareItems} onClear={clearCompare} />}
+
+      {/* ── Floating compare bar ── */}
+      {compareSelection.size > 0 && activeTab !== 'compare' && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-2.5 bg-card border border-primary/40 shadow-xl text-xs">
+          <BarChart2 className="w-4 h-4 text-primary flex-shrink-0" />
+          <span className="font-medium">
+            Выбрано {compareSelection.size} SKU
+          </span>
+          <div className="flex gap-1.5">
+            {COMPARE_MPS.map(mp => {
+              const c = mp === 'ozon' ? ozonSelectedSet.size : mp === 'ym' ? ymSelectedSet.size : wbSelectedSet.size;
+              if (!c) return null;
+              return (
+                <span key={mp} className={`px-2 py-0.5 text-[9px] font-bold ${MP_META[mp].badge}`}>
+                  {MP_META[mp].label} {c}
+                </span>
+              );
+            })}
+          </div>
+          <button onClick={openCompare}
+            className="flex items-center gap-1.5 px-3 py-1 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors font-semibold">
+            Сравнить →
+          </button>
+          <button onClick={clearCompare} title="Сбросить выбор"
+            className="p-1 text-muted-foreground hover:text-red-400 transition-colors">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
