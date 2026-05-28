@@ -277,10 +277,10 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
     else { setSortKey(key); setSortDir('desc'); }
   };
 
-  const totalRevenue = useMemo(() =>
-    filteredRows.reduce((s, r) => s + r.netSales, 0), [filteredRows]);
-  const totalProfit = useMemo(() =>
-    filteredRows.reduce((s, r) => s + r.netProfit, 0), [filteredRows]);
+  const totalRevenue    = useMemo(() => filteredRows.reduce((s, r) => s + r.netSales,    0), [filteredRows]);
+  const totalProfit     = useMemo(() => filteredRows.reduce((s, r) => s + r.netProfit,   0), [filteredRows]);
+  const totalSales      = useMemo(() => filteredRows.reduce((s, r) => s + r.salesCount,  0), [filteredRows]);
+  const totalReturns    = useMemo(() => filteredRows.reduce((s, r) => s + r.returnsCount, 0), [filteredRows]);
 
   const SortIcon = ({ sk }: { sk: SortKey }) => sortKey === sk
     ? (sortDir === 'desc' ? <ChevronDown className="w-2.5 h-2.5 text-primary ml-0.5" /> : <ChevronUp className="w-2.5 h-2.5 text-primary ml-0.5" />)
@@ -445,7 +445,13 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
             <td colSpan={3} className="px-3 py-1.5 text-[10px] text-muted-foreground/60 font-medium">
               {nameFilter ? `Итого (фильтр): ${filteredRows.length} SKU` : `Итого: ${rows.length} SKU`}
             </td>
-            <td colSpan={3} />
+            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-foreground">
+              {formatNumber(totalSales)}
+            </td>
+            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-red-400/70">
+              {totalReturns > 0 ? formatNumber(totalReturns) : '—'}
+            </td>
+            <td />
             <td className="px-3 py-1.5 text-right tabular-nums font-bold text-foreground">
               {formatCurrency(totalRevenue)}
             </td>
