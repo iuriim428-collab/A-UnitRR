@@ -140,4 +140,201 @@ router.post("/ym/report", async (req, res) => {
   }
 });
 
+/**
+ * POST /api/ym/commissions
+ * Header: X-Ym-Token
+ * Body: { campaignId, businessId, dateFrom, dateTo }
+ *
+ * Fetches billing transactions of type COMMISSION from
+ * GET /v2/businesses/{businessId}/billing/transactions
+ * and aggregates actual commission debits by shopSku.
+ *
+ * Returns: { byArticle: Record<string, number>, total: number }
+ */
+router.post("/ym/commissions", async (req, res) => {
+  const token = req.headers["x-ym-token"];
+  if (!token || typeof token !== "string") {
+    res.status(401).json({ error: "Нужен заголовок X-Ym-Token" });
+    return;
+  }
+  const { campaignId, businessId, dateFrom, dateTo } = req.body as {
+    campaignId?: string;
+    businessId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  };
+  if (!dateFrom || !dateTo) {
+    res.status(400).json({ error: "Нужны параметры dateFrom и dateTo" });
+    return;
+  }
+  if (!campaignId && !businessId) {
+    res.status(400).json({ error: "Нужен campaignId или businessId" });
+    return;
+  }
+
+  const cleanToken = token.trim().replace(/\s+/g, "");
+  req.log.info({ campaignId, businessId, dateFrom, dateTo }, "ym commissions fetch");
+
+  // transactions API uses ISO datetime
+  const fromDt = `${dateFrom}T00:00:00+03:00`;
+  const toDt   = `${dateTo}T23:59:59+03:00`;
+
+  // commissions are per-order; we need order→items map to split by SKU
+  // Step 1: fetch orders for the period (reuse existing stats/orders)
+  let orderItems: Record<string, { shopSku: string; count: number; revenue: number }[]> = {};
+
+  try {
+    // fetch orders to get shopSku per orderId
+    const fmtDate = (iso: string) => { const [y,m,d] = iso.split("-"); return `${d}-${m}-${y}`; };
+    const cid = campaignId!;
+    let pageToken: string | undefined;
+    const MAX_PAGES = 200;
+    for (let p = 0; p < MAX_PAGES; p++) {
+      const body: Record<string, unknown> = {
+        dateFrom: fmtDate(dateFrom!),
+        dateTo:   fmtDate(dateTo!),
+        statuses: ["DELIVERED","PICKUP","CANCELLED_IN_DELIVERY","RETURNED","PARTIALLY_RETURNED"],
+      };
+      if (pageToken) body["pageToken"] = pageToken;
+      const url = `${YM_BASE}/v2/campaigns/${cid}/stats/orders`;
+      const { stdout } = await execFileAsync("curl", [
+        "-s","--max-time","30","-X","POST",
+        "-H", `Api-Key: ${cleanToken}`,
+        "-H","Content-Type: application/json",
+        "-d", JSON.stringify(body),
+        "--write-out","\n%{http_code}", url,
+      ]);
+      const lines = stdout.trim().split("\n");
+      const sc = parseInt(lines[lines.length - 1], 10);
+      const rb = lines.slice(0, -1).join("\n");
+      if (sc >= 400) throw Object.assign(new Error(`YM orders ${sc}: ${rb}`), { statusCode: sc });
+      const data = JSON.parse(rb) as { result: { orders: { id: number; items: { shopSku: string; count: number; prices: { type: string; total: number }[] }[] }[]; pager?: { nextPageToken?: string } } };
+      for (const o of data.result?.orders ?? []) {
+        const totalRev = (o.items ?? []).reduce((s, it) => {
+          const mp = it.prices?.find(p => p.type === "MARKETPLACE");
+          return s + (mp?.total ?? 0);
+        }, 0);
+        orderItems[String(o.id)] = (o.items ?? []).map(it => {
+          const mp = it.prices?.find(p => p.type === "MARKETPLACE");
+          return { shopSku: it.shopSku, count: it.count, revenue: mp?.total ?? 0 };
+        });
+        // store total for proportional split
+        (orderItems as Record<string, { shopSku: string; count: number; revenue: number; _total?: number }[]>)[String(o.id)]._total = totalRev as unknown as number;
+      }
+      const next = data.result?.pager?.nextPageToken;
+      if (!next || (data.result?.orders ?? []).length === 0) break;
+      pageToken = next;
+    }
+  } catch (err) {
+    const e = err as Error & { statusCode?: number };
+    req.log.error({ err }, "ym commissions: orders fetch failed");
+    res.status(e.statusCode ?? 502).json({ error: `Не удалось загрузить заказы: ${e.message}` });
+    return;
+  }
+
+  // Step 2: fetch billing transactions
+  const byArticle: Record<string, number> = {};
+  let total = 0;
+
+  try {
+    // business-level transactions endpoint
+    // Fallback: if businessId not provided, derive from campaignId via campaign info
+    let bId = businessId;
+    if (!bId && campaignId) {
+      // Try to get businessId from campaign settings
+      try {
+        const { stdout: cStdout } = await execFileAsync("curl", [
+          "-s","--max-time","15",
+          "-H", `Api-Key: ${cleanToken}`,
+          "--write-out","\n%{http_code}",
+          `${YM_BASE}/v2/campaigns/${campaignId}`,
+        ]);
+        const cLines = cStdout.trim().split("\n");
+        const cSc = parseInt(cLines[cLines.length - 1], 10);
+        const cRb = cLines.slice(0,-1).join("\n");
+        if (cSc < 400) {
+          const cd = JSON.parse(cRb) as { campaign?: { business?: { id?: number } } };
+          const bid = cd.campaign?.business?.id;
+          if (bid) bId = String(bid);
+        }
+      } catch { /* ignore */ }
+    }
+
+    if (!bId) {
+      // Can't use billing API without businessId — return empty, client will fall back to AGENCY commissions
+      req.log.warn({ campaignId }, "ym commissions: no businessId, returning empty");
+      res.json({ byArticle: {}, total: 0, noBusinessId: true });
+      return;
+    }
+
+    let nextPageToken: string | undefined;
+    const MAX_TX_PAGES = 500;
+    for (let p = 0; p < MAX_TX_PAGES; p++) {
+      const params = new URLSearchParams({
+        dateFrom: fromDt,
+        dateTo:   toDt,
+        operationTypes: "COMMISSION",
+        limit: "200",
+      });
+      if (nextPageToken) params.set("pageToken", nextPageToken);
+      const url = `${YM_BASE}/v2/businesses/${bId}/billing/transactions?${params}`;
+      const { stdout } = await execFileAsync("curl", [
+        "-s","--max-time","30",
+        "-H", `Api-Key: ${cleanToken}`,
+        "--write-out","\n%{http_code}", url,
+      ]);
+      const lines = stdout.trim().split("\n");
+      const sc = parseInt(lines[lines.length - 1], 10);
+      const rb = lines.slice(0, -1).join("\n");
+      if (sc >= 400) {
+        req.log.warn({ sc, rb }, "ym billing transactions error");
+        break;
+      }
+      const data = JSON.parse(rb) as {
+        result?: {
+          operations?: {
+            type: string;
+            amount: number;
+            orderId?: number;
+          }[];
+          pager?: { nextPageToken?: string };
+        };
+      };
+      const ops = data.result?.operations ?? [];
+      for (const op of ops) {
+        if (op.type !== "COMMISSION") continue;
+        const amt = Math.abs(op.amount ?? 0);
+        if (amt === 0) continue;
+        total += amt;
+
+        // Distribute by revenue share across items in this order
+        const oid = String(op.orderId ?? "");
+        const items = orderItems[oid];
+        if (!items || items.length === 0) {
+          // Unknown order — put under "unknown"
+          byArticle["_unknown"] = (byArticle["_unknown"] ?? 0) + amt;
+          continue;
+        }
+        const orderRev = items.reduce((s, it) => s + it.revenue, 0);
+        for (const it of items) {
+          const share = orderRev > 0 ? it.revenue / orderRev : 1 / items.length;
+          byArticle[it.shopSku] = (byArticle[it.shopSku] ?? 0) + amt * share;
+        }
+      }
+
+      const next = data.result?.pager?.nextPageToken;
+      if (!next || ops.length === 0) break;
+      nextPageToken = next;
+    }
+
+    delete byArticle["_unknown"];
+    req.log.info({ total, skuCount: Object.keys(byArticle).length }, "ym commissions done");
+    res.json({ byArticle, total });
+  } catch (err) {
+    const e = err as Error & { statusCode?: number };
+    req.log.error({ err }, "ym commissions: billing fetch failed");
+    res.status(e.statusCode ?? 502).json({ error: `Не удалось загрузить транзакции: ${e.message}` });
+  }
+});
+
 export default router;

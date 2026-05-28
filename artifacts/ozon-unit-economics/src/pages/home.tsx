@@ -1126,6 +1126,7 @@ function YmTabContent({ mp, api }: {
             fields={[
               { label: 'Api-Key', value: api.token,      onChange: api.setToken,      placeholder: 'ЯНДЕКС_АПИ_КЛЮЧ…', secret: true },
               { label: 'ID кампании', value: api.campaignId, onChange: api.setCampaignId, placeholder: '12345678' },
+              { label: 'ID бизнеса', value: api.businessId, onChange: api.setBusinessId, placeholder: '(необяз., для точной комиссии)' },
             ]}
             dateFrom={api.dateFrom} setDateFrom={api.setDateFrom}
             dateTo={api.dateTo}     setDateTo={api.setDateTo}
