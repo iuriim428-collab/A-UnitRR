@@ -1,0 +1,34 @@
+directories:
+  output: dist-electron
+  buildResources: build-resources
+appId: ru.uniteconomics.desktop
+productName: Unit Economics
+copyright: Copyright © 2026
+files:
+  - filter:
+      - main.js
+      - preload.js
+extraResources:
+  - from: server-assets
+    to: server-assets
+    filter:
+      - '**/*'
+win:
+  target:
+    - target: zip
+      arch:
+        - x64
+  icon: build-resources/icon.ico
+  signingHashAlgorithms: null
+  certificateFile: null
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: Unit Economics
+  installerLanguages:
+    - ru_RU
+    - en_US
+  language: '1049'
+electronVersion: 34.5.8

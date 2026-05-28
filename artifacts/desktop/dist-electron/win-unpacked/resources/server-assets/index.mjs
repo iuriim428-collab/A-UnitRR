@@ -32660,6 +32660,27 @@ var wb_default = router2;
 
 // src/routes/ozon-api.ts
 var import_express3 = __toESM(require_express2(), 1);
+import { randomUUID } from "crypto";
+
+// src/lib/logger.ts
+var import_pino = __toESM(require_pino(), 1);
+var isProduction = process.env.NODE_ENV === "production";
+var logger = (0, import_pino.default)({
+  level: process.env.LOG_LEVEL ?? "info",
+  redact: [
+    "req.headers.authorization",
+    "req.headers.cookie",
+    "res.headers['set-cookie']"
+  ],
+  ...isProduction ? {} : {
+    transport: {
+      target: "pino-pretty",
+      options: { colorize: true }
+    }
+  }
+});
+
+// src/routes/ozon-api.ts
 var router3 = (0, import_express3.Router)();
 var OZON_BASE = "https://api-seller.ozon.ru";
 router3.post("/ozon/report", async (req, res) => {
@@ -32841,6 +32862,281 @@ router3.post("/ozon/product-lookup", async (req, res) => {
   }
 });
 var PERF_BASE = "https://api-performance.ozon.ru";
+var perfJobs = /* @__PURE__ */ new Map();
+setInterval(() => {
+  const cutoff = Date.now() - 15 * 60 * 1e3;
+  for (const [id, job] of perfJobs) {
+    if (job.createdAt < cutoff) perfJobs.delete(id);
+  }
+}, 6e4).unref();
+async function runPerfJob(jobId, perfClientId, perfClientSecret, sellerClientId, sellerApiKey, dateFrom, dateTo) {
+  const job = perfJobs.get(jobId);
+  const log = logger.child({ jobId });
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  try {
+    job.progress = "\u0410\u0432\u0442\u043E\u0440\u0438\u0437\u0430\u0446\u0438\u044F \u0432 Performance API\u2026";
+    const tokenResp = await fetch(`${PERF_BASE}/api/client/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({ client_id: perfClientId, client_secret: perfClientSecret, grant_type: "client_credentials" }),
+      signal: AbortSignal.timeout(15e3)
+    });
+    const tokenData = await tokenResp.json();
+    if (!tokenResp.ok) {
+      const msg = tokenData.error_description ?? tokenData.message ?? `\u041E\u0448\u0438\u0431\u043A\u0430 \u0430\u0432\u0442\u043E\u0440\u0438\u0437\u0430\u0446\u0438\u0438 (${tokenResp.status})`;
+      job.status = "error";
+      job.error = `Performance API: ${msg}`;
+      return;
+    }
+    const auth = `Bearer ${tokenData.access_token}`;
+    job.progress = "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441\u043F\u0438\u0441\u043A\u0430 \u043A\u0430\u043C\u043F\u0430\u043D\u0438\u0439\u2026";
+    const campResp = await fetch(`${PERF_BASE}/api/client/campaign`, {
+      headers: { Authorization: auth, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(15e3)
+    });
+    const campData = await campResp.json();
+    const campaigns = campData.list ?? [];
+    log.info({ total: campaigns.length }, "perf campaigns loaded");
+    if (campaigns.length === 0) {
+      job.status = "done";
+      job.result = { campaigns: [], spendByArticle: {} };
+      return;
+    }
+    const campIdsInt = campaigns.map((c) => Number(c.id)).filter((n) => !isNaN(n));
+    const statsMap = /* @__PURE__ */ new Map();
+    const reportSpend = {};
+    const batches = campIdsInt.length > 0 ? [campIdsInt] : [];
+    for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+      const chunk = batches[batchIdx];
+      try {
+        job.progress = batches.length === 1 ? `\u0417\u0430\u043F\u0440\u043E\u0441 \u0441\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043A\u0438 \u043F\u043E ${chunk.length} \u043A\u0430\u043C\u043F\u0430\u043D\u0438\u044F\u043C\u2026` : `\u0421\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043A\u0430: \u0447\u0430\u043D\u043A ${batchIdx + 1}/${batches.length}\u2026`;
+        let createResp;
+        let createData = {};
+        let created = false;
+        for (let retry = 0; retry < 12; retry++) {
+          if (retry > 0) {
+            const wait = retry <= 5 ? 8e3 : 15e3;
+            job.progress = `\u041E\u0436\u0438\u0434\u0430\u043D\u0438\u0435 \u043E\u0447\u0435\u0440\u0435\u0434\u0438 Ozon (\u043F\u043E\u043F\u044B\u0442\u043A\u0430 ${retry}/12)\u2026`;
+            log.info({ retry, wait, campCount: chunk.length }, "perf stats 429 retry");
+            await sleep(wait);
+          }
+          createResp = await fetch(`${PERF_BASE}/api/client/statistics/json`, {
+            method: "POST",
+            headers: { Authorization: auth, "Content-Type": "application/json" },
+            body: JSON.stringify({ campaigns: chunk, dateFrom, dateTo, groupBy: "NO_GROUP_BY" }),
+            signal: AbortSignal.timeout(15e3)
+          });
+          createData = await createResp.json();
+          if (createResp.ok && createData.UUID) {
+            created = true;
+            break;
+          }
+          if (createResp.status === 429) continue;
+          if (createResp.status === 400 && batchIdx === 0 && campIdsInt.length > 10) {
+            log.warn({ campCount: chunk.length }, "perf stats single batch rejected, chunking");
+            for (let i = 0; i < campIdsInt.length; i += 10) batches.push(campIdsInt.slice(i, i + 10));
+          }
+          log.warn({ status: createResp.status, body: JSON.stringify(createData).slice(0, 200) }, "perf stats create failed");
+          break;
+        }
+        if (!created || !createData.UUID) {
+          log.warn({ status: createResp?.status }, "perf stats create gave up");
+          if (createResp?.status === 429) {
+            job.status = "error";
+            job.error = "Ozon \u0443\u0436\u0435 \u043E\u0431\u0440\u0430\u0431\u0430\u0442\u044B\u0432\u0430\u0435\u0442 \u0434\u0440\u0443\u0433\u043E\u0439 \u0437\u0430\u043F\u0440\u043E\u0441 \u0441\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043A\u0438. \u041F\u043E\u0434\u043E\u0436\u0434\u0438\u0442\u0435 2\u20133 \u043C\u0438\u043D\u0443\u0442\u044B \u0438 \u043F\u043E\u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435 \u0441\u043D\u043E\u0432\u0430.";
+            return;
+          }
+          continue;
+        }
+        const uuid = createData.UUID;
+        log.info({ uuid, campCount: chunk.length }, "perf stats task created");
+        let ready = false;
+        for (let attempt = 0; attempt < 60; attempt++) {
+          await sleep(2e3);
+          job.progress = `Ozon \u0444\u043E\u0440\u043C\u0438\u0440\u0443\u0435\u0442 \u043E\u0442\u0447\u0451\u0442\u2026 (${attempt * 2}\u0441)`;
+          const pollResp = await fetch(`${PERF_BASE}/api/client/statistics/${uuid}`, {
+            headers: { Authorization: auth },
+            signal: AbortSignal.timeout(1e4)
+          });
+          const pollData = await pollResp.json();
+          const pollState = String(pollData.state ?? "");
+          const isReady = pollState === "OK" || pollState === "DONE" || pollState === "READY";
+          log.info({ uuid, attempt, state: pollState }, "perf stats poll");
+          if (isReady) {
+            let entries = [];
+            const reportLink = String(pollData.link ?? "");
+            if (reportLink) {
+              try {
+                const reportUrl = reportLink.startsWith("http") ? reportLink : `${PERF_BASE}${reportLink}`;
+                const reportResp = await fetch(reportUrl, { headers: { Authorization: auth }, signal: AbortSignal.timeout(15e3) });
+                const reportText = await reportResp.text();
+                log.info({ uuid, status: reportResp.status, preview: reportText.slice(0, 500) }, "perf report fetched");
+                try {
+                  const reportData = JSON.parse(reportText);
+                  if (Array.isArray(reportData)) {
+                    entries = reportData;
+                  } else {
+                    const parseRu = (s) => parseFloat((s ?? "0").replace(",", ".")) || 0;
+                    for (const [campId, campVal] of Object.entries(reportData)) {
+                      const camp = campVal;
+                      const rows = camp?.report?.rows;
+                      if (!Array.isArray(rows)) continue;
+                      let totalSpent = 0, totalViews = 0, totalClicks = 0, totalOrders = 0, totalRevenue = 0;
+                      for (const row of rows) {
+                        const spent = parseRu(row.moneySpent);
+                        const sku = String(row.sku ?? "").trim();
+                        totalSpent += spent;
+                        totalViews += parseInt(row.views ?? "0") || 0;
+                        totalClicks += parseInt(row.clicks ?? "0") || 0;
+                        totalOrders += parseInt(row.orders ?? "0") || 0;
+                        totalRevenue += parseRu(row.ordersMoney);
+                        if (sku) reportSpend[sku] = (reportSpend[sku] ?? 0) + spent;
+                      }
+                      statsMap.set(campId, { id: campId, moneySpent: totalSpent, views: totalViews, clicks: totalClicks, orders: totalOrders, revenue: totalRevenue });
+                    }
+                  }
+                } catch {
+                  log.info({ uuid }, "perf report not JSON");
+                }
+              } catch (e) {
+                log.warn({ uuid, err: e }, "perf report fetch error");
+              }
+            } else {
+              const raw = pollData;
+              if (Array.isArray(raw.statistics)) entries = raw.statistics;
+              else if (raw.statistics && typeof raw.statistics === "object") {
+                const n = raw.statistics;
+                entries = [...n.sku ?? [], ...n.banner ?? []];
+              } else if (Array.isArray(raw.list)) entries = raw.list;
+              else if (Array.isArray(raw.result)) entries = raw.result;
+              else if (Array.isArray(raw.rows)) entries = raw.rows;
+              else if (Array.isArray(raw.data)) entries = raw.data;
+            }
+            for (const s of entries) {
+              const sid = String(s.id ?? "");
+              if (sid) statsMap.set(sid, s);
+            }
+            ready = true;
+            break;
+          }
+          if (pollData.state === "ERROR" || pollData.error) {
+            log.warn({ uuid }, "perf stats task error");
+            break;
+          }
+        }
+        if (!ready) log.warn({ uuid }, "perf stats task timed out");
+      } catch (e) {
+        log.warn({ err: e }, "perf stats batch error");
+      }
+    }
+    log.info({ statsEntries: statsMap.size }, "perf stats done");
+    const campProducts = /* @__PURE__ */ new Map();
+    const allItemIds = /* @__PURE__ */ new Set();
+    const productIdToArticle = /* @__PURE__ */ new Map();
+    const campaignsWithSpend = campaigns.filter((c) => {
+      const s = statsMap.get(c.id);
+      return s !== void 0 && (parseFloat(String(s.moneySpent ?? 0)) || 0) > 0;
+    });
+    log.info({ withSpend: campaignsWithSpend.length, total: campaigns.length }, "perf campaigns with spend");
+    job.progress = `\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0441\u043E\u0441\u0442\u0430\u0432\u0430 ${campaignsWithSpend.length} \u043A\u0430\u043C\u043F\u0430\u043D\u0438\u0439\u2026`;
+    for (const camp of campaignsWithSpend) {
+      try {
+        const objResp = await fetch(`${PERF_BASE}/api/client/campaign/${camp.id}/objects`, { headers: { Authorization: auth }, signal: AbortSignal.timeout(1e4) });
+        if (objResp.ok) {
+          const objRaw = await objResp.json();
+          const ids = [];
+          for (const p of objRaw.list ?? []) {
+            const id = String(p.id ?? "").trim();
+            const article = String(p.article ?? p.offer_id ?? p.offerId ?? "").trim();
+            if (id) {
+              ids.push(id);
+              if (article) productIdToArticle.set(id, article);
+              else if (!isNaN(Number(id))) allItemIds.add(id);
+            } else if (article) {
+              ids.push(article);
+              productIdToArticle.set(article, article);
+            }
+          }
+          campProducts.set(camp.id, ids);
+        }
+      } catch {
+      }
+    }
+    if (sellerClientId && sellerApiKey && allItemIds.size > 0) {
+      const ids = Array.from(allItemIds).map(Number).filter((n) => !isNaN(n));
+      for (let i = 0; i < ids.length; i += 100) {
+        const batch = ids.slice(i, i + 100);
+        try {
+          let infoResp = await fetch(`${OZON_BASE}/v2/product/info/list`, { method: "POST", headers: { "Client-Id": sellerClientId, "Api-Key": sellerApiKey, "Content-Type": "application/json" }, body: JSON.stringify({ sku: batch }), signal: AbortSignal.timeout(15e3) });
+          if (!infoResp.ok) infoResp = await fetch(`${OZON_BASE}/v2/product/info/list`, { method: "POST", headers: { "Client-Id": sellerClientId, "Api-Key": sellerApiKey, "Content-Type": "application/json" }, body: JSON.stringify({ product_id: batch }), signal: AbortSignal.timeout(15e3) });
+          if (infoResp.ok) {
+            const infoData = await infoResp.json();
+            for (const item of infoData.result?.items ?? []) {
+              const k = String(item.id ?? item.sku ?? "");
+              if (k && item.offer_id) productIdToArticle.set(k, item.offer_id);
+            }
+          }
+        } catch {
+        }
+      }
+    }
+    const spendByArticle = Object.keys(reportSpend).length > 0 ? { ...reportSpend } : (() => {
+      const fb = {};
+      for (const camp of campaignsWithSpend) {
+        const s = statsMap.get(camp.id);
+        const spent = parseFloat(String(s?.moneySpent ?? 0)) || 0;
+        const pids = campProducts.get(camp.id) ?? [];
+        if (spent > 0 && pids.length > 0) {
+          const pp = spent / pids.length;
+          for (const pid of pids) {
+            const k = productIdToArticle.get(pid) ?? pid;
+            fb[k] = (fb[k] ?? 0) + pp;
+          }
+        }
+      }
+      return fb;
+    })();
+    const results = campaignsWithSpend.map((camp) => {
+      const s = statsMap.get(camp.id);
+      const moneySpent = parseFloat(String(s?.moneySpent ?? 0)) || 0;
+      const revenue = parseFloat(String(s?.revenue ?? 0)) || 0;
+      return {
+        id: camp.id,
+        title: camp.title,
+        state: camp.state,
+        type: camp.advObjectType,
+        budget: camp.budget ?? 0,
+        moneySpent,
+        views: s?.views ?? 0,
+        clicks: s?.clicks ?? 0,
+        orders: s?.orders ?? 0,
+        revenue,
+        drr: revenue > 0 ? moneySpent / revenue * 100 : 0,
+        productsCount: (campProducts.get(camp.id) ?? []).length
+      };
+    });
+    log.info({ campaigns: results.length, skus: Object.keys(spendByArticle).length, totalSpend: Object.values(spendByArticle).reduce((a, b) => a + b, 0).toFixed(2) }, "perf report done");
+    job.status = "done";
+    job.result = { campaigns: results, spendByArticle };
+  } catch (err) {
+    log.error({ err }, "perf job error");
+    job.status = "error";
+    job.error = "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u0432\u044F\u0437\u0430\u0442\u044C\u0441\u044F \u0441 Ozon Performance API";
+  }
+}
+router3.get("/ozon/performance-report/job/:jobId", (req, res) => {
+  const job = perfJobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: "Job not found or expired" });
+    return;
+  }
+  res.json({
+    status: job.status,
+    progress: job.progress,
+    result: job.result,
+    error: job.error
+  });
+});
 router3.post("/ozon/performance-report", async (req, res) => {
   const perfClientId = req.headers["x-perf-client-id"];
   const perfClientSecret = req.headers["x-perf-client-secret"];
@@ -32855,136 +33151,133 @@ router3.post("/ozon/performance-report", async (req, res) => {
     res.status(400).json({ error: "\u041D\u0443\u0436\u043D\u044B \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B dateFrom \u0438 dateTo" });
     return;
   }
-  req.log.info({ dateFrom, dateTo, hasSellerCreds: !!(sellerClientId && sellerApiKey) }, "perf report fetch");
+  const jobId = randomUUID();
+  perfJobs.set(jobId, { status: "running", progress: "\u0417\u0430\u043F\u0443\u0441\u043A\u2026", createdAt: Date.now() });
+  req.log.info({ dateFrom, dateTo, jobId }, "perf job started");
+  res.json({ jobId });
+  runPerfJob(
+    jobId,
+    String(perfClientId),
+    String(perfClientSecret),
+    sellerClientId ? String(sellerClientId) : void 0,
+    sellerApiKey ? String(sellerApiKey) : void 0,
+    dateFrom,
+    dateTo
+  ).catch((err) => {
+    const job = perfJobs.get(jobId);
+    if (job) {
+      job.status = "error";
+      job.error = String(err);
+    }
+  });
+});
+router3.post("/ozon/adv-spend-by-sku", async (req, res) => {
+  const clientId = req.headers["x-ozon-client-id"];
+  const apiKey = req.headers["x-ozon-api-key"];
+  if (!clientId || typeof clientId !== "string" || !apiKey || typeof apiKey !== "string") {
+    res.status(401).json({ error: "\u041D\u0443\u0436\u043D\u044B X-Ozon-Client-Id \u0438 X-Ozon-Api-Key" });
+    return;
+  }
+  const { dateFrom, dateTo } = req.body;
+  if (!dateFrom || !dateTo) {
+    res.status(400).json({ error: "\u041D\u0443\u0436\u043D\u044B dateFrom \u0438 dateTo" });
+    return;
+  }
+  req.log.info({ dateFrom, dateTo }, "adv-spend-by-sku fetch");
   try {
-    const tokenResp = await fetch(`${PERF_BASE}/api/client/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
-      body: JSON.stringify({
-        client_id: String(perfClientId),
-        client_secret: String(perfClientSecret),
-        grant_type: "client_credentials"
-      }),
-      signal: AbortSignal.timeout(15e3)
-    });
-    const tokenData = await tokenResp.json();
-    if (!tokenResp.ok) {
-      const msg = tokenData.error_description ?? tokenData.message ?? `\u041E\u0448\u0438\u0431\u043A\u0430 \u0430\u0432\u0442\u043E\u0440\u0438\u0437\u0430\u0446\u0438\u0438 (${tokenResp.status})`;
-      res.status(401).json({ error: `Performance API: ${msg}` });
+    const allRows = [];
+    let offset = 0;
+    const limit = 1e3;
+    while (true) {
+      const resp = await fetch(`${OZON_BASE}/v1/analytics/data`, {
+        method: "POST",
+        headers: {
+          "Client-Id": clientId,
+          "Api-Key": apiKey,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          date_from: dateFrom,
+          date_to: dateTo,
+          dimension: ["sku"],
+          filters: [],
+          metrics: ["adv_sum_all"],
+          limit,
+          offset,
+          sort: [{ key: "adv_sum_all", order: "DESC" }]
+        }),
+        signal: AbortSignal.timeout(2e4)
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        const msg = data.message ?? `Ozon Analytics ${resp.status}`;
+        req.log.warn({ status: resp.status, msg }, "adv analytics error");
+        res.status(resp.status).json({ error: msg });
+        return;
+      }
+      const rows = data.result?.data ?? [];
+      for (const row of rows) {
+        const sku = String(row.dimensions?.[0]?.id ?? "");
+        const spend = row.metrics?.[0] ?? 0;
+        if (sku && spend > 0) allRows.push({ sku, spend });
+      }
+      if (rows.length < limit) break;
+      offset += limit;
+    }
+    req.log.info({ skuWithSpend: allRows.length }, "adv analytics rows fetched");
+    if (allRows.length === 0) {
+      res.json({ spendByArticle: {}, totalSpend: 0, skuCount: 0 });
       return;
     }
-    const auth = `Bearer ${tokenData.access_token}`;
-    const campResp = await fetch(`${PERF_BASE}/api/client/campaign`, {
-      headers: { Authorization: auth, "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(15e3)
-    });
-    const campData = await campResp.json();
-    const campaigns = campData.list ?? [];
-    if (campaigns.length === 0) {
-      res.json({ campaigns: [], spendByArticle: {} });
-      return;
-    }
-    const campIdsInt = campaigns.map((c) => Number(c.id));
-    const statsResp = await fetch(`${PERF_BASE}/api/client/statistics/json`, {
-      method: "POST",
-      headers: { Authorization: auth, "Content-Type": "application/json" },
-      body: JSON.stringify({ campaigns: campIdsInt, dateFrom, dateTo, groupBy: "NO_GROUP_BY" }),
-      signal: AbortSignal.timeout(3e4)
-    });
-    const statsRaw = await statsResp.json();
-    req.log.info({ statsStatus: statsResp.status, statsKeys: Object.keys(statsRaw) }, "perf stats raw");
-    const statsData = statsRaw;
-    const statsMap = /* @__PURE__ */ new Map();
-    for (const s of statsData.statistics ?? []) statsMap.set(String(s.id), s);
-    const campProducts = /* @__PURE__ */ new Map();
-    const allProductIds = /* @__PURE__ */ new Set();
-    for (const camp of campaigns) {
+    const skuIds = allRows.map((r) => Number(r.sku)).filter((n) => !isNaN(n));
+    const skuToArticle = /* @__PURE__ */ new Map();
+    for (let i = 0; i < skuIds.length; i += 100) {
+      const batch = skuIds.slice(i, i + 100);
       try {
-        const objResp = await fetch(`${PERF_BASE}/api/client/campaign/${camp.id}/objects`, {
-          headers: { Authorization: auth },
-          signal: AbortSignal.timeout(1e4)
+        const infoResp = await fetch(`${OZON_BASE}/v2/product/info/list`, {
+          method: "POST",
+          headers: {
+            "Client-Id": clientId,
+            "Api-Key": apiKey,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ product_id: batch }),
+          signal: AbortSignal.timeout(15e3)
         });
-        if (objResp.ok) {
-          const objRaw = await objResp.json();
-          const list = objRaw.list ?? [];
-          const ids = list.map((p) => String(p.id ?? p.offerId ?? p.offer_id ?? p.article ?? "")).filter(Boolean);
-          campProducts.set(camp.id, ids);
-          for (const id of ids) allProductIds.add(id);
-        }
-      } catch {
-      }
-    }
-    req.log.info({ totalProductIds: allProductIds.size }, "perf objects fetched");
-    const productIdToArticle = /* @__PURE__ */ new Map();
-    if (sellerClientId && sellerApiKey && allProductIds.size > 0) {
-      const ids = Array.from(allProductIds).map(Number).filter((n) => !isNaN(n));
-      for (let i = 0; i < ids.length; i += 100) {
-        const batch = ids.slice(i, i + 100);
-        try {
-          const infoResp = await fetch(`${OZON_BASE}/v2/product/info/list`, {
-            method: "POST",
-            headers: {
-              "Client-Id": String(sellerClientId),
-              "Api-Key": String(sellerApiKey),
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ product_id: batch }),
-            signal: AbortSignal.timeout(15e3)
-          });
-          if (infoResp.ok) {
-            const infoData = await infoResp.json();
-            for (const item of infoData.result?.items ?? []) {
-              if (item.id != null && item.offer_id) {
-                productIdToArticle.set(String(item.id), item.offer_id);
-              }
+        if (infoResp.ok) {
+          const infoData = await infoResp.json();
+          for (const item of infoData.result?.items ?? []) {
+            if (item.id != null && item.offer_id) {
+              skuToArticle.set(String(item.id), item.offer_id);
             }
-          } else {
-            req.log.warn({ status: infoResp.status }, "seller product info failed");
           }
-        } catch (e) {
-          req.log.warn({ err: e }, "seller product info error");
+        } else {
+          req.log.warn({ status: infoResp.status, batchStart: i }, "product info batch failed");
         }
+      } catch (e) {
+        req.log.warn({ err: e, batchStart: i }, "product info batch error");
       }
-      req.log.info({ resolved: productIdToArticle.size, of: allProductIds.size }, "perf product resolve done");
     }
     const spendByArticle = {};
-    const results = [];
-    for (const camp of campaigns) {
-      const s = statsMap.get(camp.id);
-      const moneySpent = parseFloat(String(s?.moneySpent ?? 0)) || 0;
-      const revenue = parseFloat(String(s?.revenue ?? 0)) || 0;
-      const views = s?.views ?? 0;
-      const clicks = s?.clicks ?? 0;
-      const orders = s?.orders ?? 0;
-      const drr = revenue > 0 ? moneySpent / revenue * 100 : 0;
-      const productIds = campProducts.get(camp.id) ?? [];
-      if (moneySpent > 0 && productIds.length > 0) {
-        const perProduct = moneySpent / productIds.length;
-        for (const pid of productIds) {
-          const article = productIdToArticle.get(pid) ?? "";
-          if (article) spendByArticle[article] = (spendByArticle[article] ?? 0) + perProduct;
-        }
+    let totalSpend = 0;
+    let unmapped = 0;
+    for (const { sku, spend } of allRows) {
+      const article = skuToArticle.get(sku);
+      if (article) {
+        spendByArticle[article] = (spendByArticle[article] ?? 0) + spend;
+        totalSpend += spend;
+      } else {
+        unmapped++;
       }
-      results.push({
-        id: camp.id,
-        title: camp.title,
-        state: camp.state,
-        type: camp.advObjectType,
-        budget: camp.budget ?? 0,
-        moneySpent,
-        views,
-        clicks,
-        orders,
-        revenue,
-        drr,
-        productsCount: productIds.length
-      });
     }
-    req.log.info({ campaigns: results.length, skus: Object.keys(spendByArticle).length }, "perf report done");
-    res.json({ campaigns: results, spendByArticle });
+    req.log.info(
+      { articles: Object.keys(spendByArticle).length, totalSpend: Math.round(totalSpend), unmapped },
+      "adv-spend-by-sku done"
+    );
+    res.json({ spendByArticle, totalSpend, skuCount: Object.keys(spendByArticle).length });
   } catch (err) {
-    req.log.error({ err }, "perf report error");
-    res.status(502).json({ error: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u0432\u044F\u0437\u0430\u0442\u044C\u0441\u044F \u0441 Ozon Performance API" });
+    req.log.error({ err }, "adv-spend-by-sku error");
+    res.status(502).json({ error: "\u041E\u0448\u0438\u0431\u043A\u0430 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u044F \u043A Ozon API" });
   }
 });
 var ozon_api_default = router3;
@@ -33087,6 +33380,163 @@ router4.post("/ym/report", async (req, res) => {
     }
   }
 });
+router4.post("/ym/commissions", async (req, res) => {
+  const token = req.headers["x-ym-token"];
+  if (!token || typeof token !== "string") {
+    res.status(401).json({ error: "\u041D\u0443\u0436\u0435\u043D \u0437\u0430\u0433\u043E\u043B\u043E\u0432\u043E\u043A X-Ym-Token" });
+    return;
+  }
+  const { campaignId, businessId, dateFrom, dateTo } = req.body;
+  if (!dateFrom || !dateTo) {
+    res.status(400).json({ error: "\u041D\u0443\u0436\u043D\u044B \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B dateFrom \u0438 dateTo" });
+    return;
+  }
+  if (!campaignId && !businessId) {
+    res.status(400).json({ error: "\u041D\u0443\u0436\u0435\u043D campaignId \u0438\u043B\u0438 businessId" });
+    return;
+  }
+  const cleanToken = token.trim().replace(/\s+/g, "");
+  req.log.info({ campaignId, businessId, dateFrom, dateTo }, "ym commissions fetch");
+  const fromDt = `${dateFrom}T00:00:00+03:00`;
+  const toDt = `${dateTo}T23:59:59+03:00`;
+  let orderItems = {};
+  try {
+    const fmtDate = (iso) => {
+      const [y, m, d] = iso.split("-");
+      return `${d}-${m}-${y}`;
+    };
+    const cid = campaignId;
+    let pageToken;
+    const MAX_PAGES = 200;
+    for (let p = 0; p < MAX_PAGES; p++) {
+      const body = {
+        dateFrom: fmtDate(dateFrom),
+        dateTo: fmtDate(dateTo),
+        statuses: ["DELIVERED", "PICKUP", "CANCELLED_IN_DELIVERY", "RETURNED", "PARTIALLY_RETURNED"]
+      };
+      if (pageToken) body["pageToken"] = pageToken;
+      const url = `${YM_BASE}/v2/campaigns/${cid}/stats/orders`;
+      const { stdout } = await execFileAsync("curl", [
+        "-s",
+        "--max-time",
+        "30",
+        "-X",
+        "POST",
+        "-H",
+        `Api-Key: ${cleanToken}`,
+        "-H",
+        "Content-Type: application/json",
+        "-d",
+        JSON.stringify(body),
+        "--write-out",
+        "\n%{http_code}",
+        url
+      ]);
+      const lines = stdout.trim().split("\n");
+      const sc = parseInt(lines[lines.length - 1], 10);
+      const rb = lines.slice(0, -1).join("\n");
+      if (sc >= 400) throw Object.assign(new Error(`YM orders ${sc}: ${rb}`), { statusCode: sc });
+      const data = JSON.parse(rb);
+      for (const o of data.result?.orders ?? []) {
+        const totalRev = (o.items ?? []).reduce((s, it) => {
+          const mp = it.prices?.find((p2) => p2.type === "MARKETPLACE");
+          return s + (mp?.total ?? 0);
+        }, 0);
+        orderItems[String(o.id)] = (o.items ?? []).map((it) => {
+          const mp = it.prices?.find((p2) => p2.type === "MARKETPLACE");
+          return { shopSku: it.shopSku, count: it.count, revenue: mp?.total ?? 0 };
+        });
+        orderItems[String(o.id)]._total = totalRev;
+      }
+      const next = data.result?.pager?.nextPageToken;
+      if (!next || (data.result?.orders ?? []).length === 0) break;
+      pageToken = next;
+    }
+  } catch (err) {
+    const e = err;
+    req.log.error({ err }, "ym commissions: orders fetch failed");
+    res.status(e.statusCode ?? 502).json({ error: `\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0437\u0430\u043A\u0430\u0437\u044B: ${e.message}` });
+    return;
+  }
+  const byArticle = {};
+  let total = 0;
+  try {
+    const cid = campaignId;
+    let nextPageToken;
+    let debugLogged = false;
+    const MAX_TX_PAGES = 500;
+    const COMMISSION_TYPES = /* @__PURE__ */ new Set([
+      "AGENCY_COMMISSION",
+      "MARKETPLACE_OFFER_PROCESSING_FEE",
+      "MARKETPLACE_OFFER_FULFILLMENT_FEE",
+      "MARKETPLACE_SELLERS_INBOUND_REAL_SUPPLIER_ARTICLE_PRICE",
+      "COMMISSION",
+      "MARKET_COMMISSION"
+    ]);
+    for (let p = 0; p < MAX_TX_PAGES; p++) {
+      const params = new URLSearchParams({
+        fromDate: dateFrom,
+        toDate: dateTo,
+        limit: "200"
+      });
+      if (nextPageToken) params.set("pageToken", nextPageToken);
+      const url = `${YM_BASE}/v2/campaigns/${cid}/billing/transactions?${params}`;
+      const { stdout } = await execFileAsync("curl", [
+        "-s",
+        "--max-time",
+        "30",
+        "-H",
+        `Api-Key: ${cleanToken}`,
+        "--write-out",
+        "\n%{http_code}",
+        url
+      ]);
+      const lines = stdout.trim().split("\n");
+      const sc = parseInt(lines[lines.length - 1], 10);
+      const rb = lines.slice(0, -1).join("\n");
+      if (sc >= 400) {
+        req.log.warn({ sc, rb }, "ym billing transactions error");
+        break;
+      }
+      const data = JSON.parse(rb);
+      const ops = data.result?.operations ?? [];
+      if (!debugLogged && ops.length > 0) {
+        debugLogged = true;
+        const sample = ops.slice(0, 5).map((o) => ({ type: o.type, amount: o.amount, orderId: o.orderId }));
+        const typeCounts = {};
+        for (const o of ops) typeCounts[o.type] = (typeCounts[o.type] ?? 0) + 1;
+        req.log.info({ sample, typeCounts, totalOps: ops.length }, "ym billing sample");
+      }
+      for (const op of ops) {
+        if (!COMMISSION_TYPES.has(op.type)) continue;
+        const amt = Math.abs(op.amount ?? 0);
+        if (amt === 0) continue;
+        total += amt;
+        const oid = String(op.orderId ?? "");
+        const items = orderItems[oid];
+        if (!items || items.length === 0) {
+          byArticle["_unknown"] = (byArticle["_unknown"] ?? 0) + amt;
+          continue;
+        }
+        const orderRev = items.reduce((s, it) => s + it.revenue, 0);
+        for (const it of items) {
+          const share = orderRev > 0 ? it.revenue / orderRev : 1 / items.length;
+          byArticle[it.shopSku] = (byArticle[it.shopSku] ?? 0) + amt * share;
+        }
+      }
+      const next = data.result?.pager?.nextPageToken;
+      if (!next || ops.length === 0) break;
+      nextPageToken = next;
+    }
+    delete byArticle["_unknown"];
+    req.log.info({ total, skuCount: Object.keys(byArticle).length }, "ym commissions done");
+    res.json({ byArticle, total });
+  } catch (err) {
+    const e = err;
+    req.log.error({ err }, "ym commissions: billing fetch failed");
+    res.status(e.statusCode ?? 502).json({ error: `\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0442\u0440\u0430\u043D\u0437\u0430\u043A\u0446\u0438\u0438: ${e.message}` });
+  }
+});
 var ym_api_default = router4;
 
 // src/routes/index.ts
@@ -33096,24 +33546,6 @@ router5.use(wb_default);
 router5.use(ozon_api_default);
 router5.use(ym_api_default);
 var routes_default = router5;
-
-// src/lib/logger.ts
-var import_pino = __toESM(require_pino(), 1);
-var isProduction = process.env.NODE_ENV === "production";
-var logger = (0, import_pino.default)({
-  level: process.env.LOG_LEVEL ?? "info",
-  redact: [
-    "req.headers.authorization",
-    "req.headers.cookie",
-    "res.headers['set-cookie']"
-  ],
-  ...isProduction ? {} : {
-    transport: {
-      target: "pino-pretty",
-      options: { colorize: true }
-    }
-  }
-});
 
 // src/app.ts
 var app = (0, import_express6.default)();
@@ -33142,7 +33574,13 @@ app.use(import_express6.default.urlencoded({ extended: true }));
 app.use("/api", routes_default);
 var frontendDir = process.env["SERVE_FRONTEND_DIR"];
 if (frontendDir && existsSync(frontendDir)) {
-  app.use(import_express6.default.static(frontendDir));
+  app.use(import_express6.default.static(frontendDir, {
+    setHeaders(res, filePath) {
+      if (filePath.endsWith(".zip")) {
+        res.setHeader("Cache-Control", "no-store");
+      }
+    }
+  }));
   app.get("/{*path}", (_req, res) => {
     res.sendFile(join(frontendDir, "index.html"));
   });
