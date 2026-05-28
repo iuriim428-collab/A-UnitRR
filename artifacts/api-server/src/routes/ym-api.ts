@@ -253,8 +253,8 @@ router.post("/ym/commissions", async (req, res) => {
 
     for (let p = 0; p < MAX_TX_PAGES; p++) {
       const params = new URLSearchParams({
-        dateFrom: fromDt,
-        dateTo:   toDt,
+        fromDate: dateFrom!,
+        toDate:   dateTo!,
         limit: "200",
       });
       if (nextPageToken) params.set("pageToken", nextPageToken);
