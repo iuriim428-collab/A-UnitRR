@@ -232,52 +232,33 @@ router.post("/ym/commissions", async (req, res) => {
     return;
   }
 
-  // Step 2: fetch billing transactions
+  // Step 2: fetch billing transactions via campaign-level endpoint
   const byArticle: Record<string, number> = {};
   let total = 0;
 
   try {
-    // business-level transactions endpoint
-    // Fallback: if businessId not provided, derive from campaignId via campaign info
-    let bId = businessId;
-    if (!bId && campaignId) {
-      // Try to get businessId from campaign settings
-      try {
-        const { stdout: cStdout } = await execFileAsync("curl", [
-          "-s","--max-time","15",
-          "-H", `Api-Key: ${cleanToken}`,
-          "--write-out","\n%{http_code}",
-          `${YM_BASE}/v2/campaigns/${campaignId}`,
-        ]);
-        const cLines = cStdout.trim().split("\n");
-        const cSc = parseInt(cLines[cLines.length - 1], 10);
-        const cRb = cLines.slice(0,-1).join("\n");
-        if (cSc < 400) {
-          const cd = JSON.parse(cRb) as { campaign?: { business?: { id?: number } } };
-          const bid = cd.campaign?.business?.id;
-          if (bid) bId = String(bid);
-        }
-      } catch { /* ignore */ }
-    }
-
-    if (!bId) {
-      // Can't use billing API without businessId — return empty, client will fall back to AGENCY commissions
-      req.log.warn({ campaignId }, "ym commissions: no businessId, returning empty");
-      res.json({ byArticle: {}, total: 0, noBusinessId: true });
-      return;
-    }
-
+    const cid = campaignId!;
     let nextPageToken: string | undefined;
+    let debugLogged = false;
     const MAX_TX_PAGES = 500;
+    // Commission-related operation types in YM billing API
+    const COMMISSION_TYPES = new Set([
+      "AGENCY_COMMISSION",
+      "MARKETPLACE_OFFER_PROCESSING_FEE",
+      "MARKETPLACE_OFFER_FULFILLMENT_FEE",
+      "MARKETPLACE_SELLERS_INBOUND_REAL_SUPPLIER_ARTICLE_PRICE",
+      "COMMISSION",
+      "MARKET_COMMISSION",
+    ]);
+
     for (let p = 0; p < MAX_TX_PAGES; p++) {
       const params = new URLSearchParams({
         dateFrom: fromDt,
         dateTo:   toDt,
-        operationTypes: "COMMISSION",
         limit: "200",
       });
       if (nextPageToken) params.set("pageToken", nextPageToken);
-      const url = `${YM_BASE}/v2/businesses/${bId}/billing/transactions?${params}`;
+      const url = `${YM_BASE}/v2/campaigns/${cid}/billing/transactions?${params}`;
       const { stdout } = await execFileAsync("curl", [
         "-s","--max-time","30",
         "-H", `Api-Key: ${cleanToken}`,
@@ -301,8 +282,18 @@ router.post("/ym/commissions", async (req, res) => {
         };
       };
       const ops = data.result?.operations ?? [];
+
+      // Log first page sample to understand available operation types
+      if (!debugLogged && ops.length > 0) {
+        debugLogged = true;
+        const sample = ops.slice(0, 5).map(o => ({ type: o.type, amount: o.amount, orderId: o.orderId }));
+        const typeCounts: Record<string, number> = {};
+        for (const o of ops) typeCounts[o.type] = (typeCounts[o.type] ?? 0) + 1;
+        req.log.info({ sample, typeCounts, totalOps: ops.length }, "ym billing sample");
+      }
+
       for (const op of ops) {
-        if (op.type !== "COMMISSION") continue;
+        if (!COMMISSION_TYPES.has(op.type)) continue;
         const amt = Math.abs(op.amount ?? 0);
         if (amt === 0) continue;
         total += amt;
@@ -311,7 +302,6 @@ router.post("/ym/commissions", async (req, res) => {
         const oid = String(op.orderId ?? "");
         const items = orderItems[oid];
         if (!items || items.length === 0) {
-          // Unknown order — put under "unknown"
           byArticle["_unknown"] = (byArticle["_unknown"] ?? 0) + amt;
           continue;
         }
