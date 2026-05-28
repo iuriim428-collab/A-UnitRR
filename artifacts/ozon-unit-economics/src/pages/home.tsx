@@ -86,9 +86,9 @@ function ModeToggle({ mode, onChange }: { mode: 'files' | 'api'; onChange: (m: '
 }
 
 // ─── Summary sidebar ──────────────────────────────────────────────────────────
-function SummarySidebar({ s, hasCosts, adSpend, setAdSpend, perfTotal }: {
+function SummarySidebar({ s, hasCosts, adSpend, setAdSpend, perfTotal, promotionLabel }: {
   s: ReportSummary; hasCosts: boolean; adSpend: number; setAdSpend: (v: number) => void;
-  perfTotal?: number;
+  perfTotal?: number; promotionLabel?: string;
 }) {
   const [adInput, setAdInput] = useState(adSpend > 0 ? String(adSpend) : '');
   const adjProfit = s.netProfit - adSpend;
@@ -117,7 +117,7 @@ function SummarySidebar({ s, hasCosts, adSpend, setAdSpend, perfTotal }: {
       {s.lastMile         > 0 && <MetricRow label="└ Последняя миля" value={`-${formatCurrency(s.lastMile)}`}         sub />}
       {s.agentServices    > 0 && <MetricRow label="Услуги партнёров" value={`-${formatCurrency(s.agentServices)}`} />}
       {s.acquiring        > 0 && <MetricRow label="└ Эквайринг"      value={`-${formatCurrency(s.acquiring)}`}        sub />}
-      {s.promotion        > 0 && <MetricRow label="Прод. на платформе" value={`-${formatCurrency(s.promotion)}`} />}
+      <MetricRow label={promotionLabel ?? 'Прод. на платформе'} value={s.promotion > 0 ? `-${formatCurrency(s.promotion)}` : '—'} />
       {s.storage          > 0 && <MetricRow label="Хранение"          value={`-${formatCurrency(s.storage)}`} />}
       {s.fboServices      > 0 && <MetricRow label="Прочие услуги"    value={`-${formatCurrency(s.fboServices)}`} />}
       {s.otherExpenses    > 0 && <MetricRow label="Штрафы/прочее"    value={`-${formatCurrency(s.otherExpenses)}`} />}
@@ -1069,6 +1069,21 @@ function YmTabContent({ mp, api }: {
   const active  = mode === 'files' ? mp  : api;
   const hasData = active.rows.length > 0;
 
+  // spendByArticle = API auction promotion + manual adSpend distributed by revenue share
+  const ymSpendByArticle = useMemo(() => {
+    const rows = active.calculatedRows;
+    const hasApiSpend = rows.some(r => (r.promotion ?? 0) > 0);
+    if (!hasApiSpend && adSpend === 0) return undefined;
+    const totalRevenue = rows.reduce((s, r) => s + r.netSales, 0);
+    return Object.fromEntries(
+      rows.map(r => [
+        r.article,
+        (r.promotion ?? 0) +
+        (adSpend > 0 && totalRevenue > 0 ? adSpend * (r.netSales / totalRevenue) : 0),
+      ])
+    );
+  }, [active.calculatedRows, adSpend]);
+
   const handleSelectFolder = async () => {
     try { const h = await pickFolder(); if (h) await mp.loadFolder(h); } catch {}
   };
@@ -1077,7 +1092,10 @@ function YmTabContent({ mp, api }: {
     active.calculatedRows.map(r => ({
       'Артикул': r.article, 'Название': r.name,
       'Продажи, шт': r.salesCount, 'Возвраты, шт': r.returnsCount,
-      'Выручка, руб': r.netSales, 'Комиссия ЯМ, руб': r.ozonCommission,
+      'Выручка, руб': r.netSales,
+      'Комиссия ЯМ, руб': r.ozonCommission,
+      'Доставка, руб': r.deliveryServices,
+      'Реклама (аукцион), руб': r.promotion,
       'Себестоимость, руб': r.costTotal, 'Налог, руб': r.taxAmount,
       'Прибыль, руб': r.netProfit, 'Маржа, %': r.marginPercent.toFixed(1),
     })),
@@ -1086,7 +1104,13 @@ function YmTabContent({ mp, api }: {
 
   return (
     <div className="flex-1 flex overflow-hidden">
-      {hasData && <SummarySidebar s={active.summary} hasCosts={active.hasCosts} adSpend={adSpend} setAdSpend={setAdSpend} />}
+      {hasData && (
+        <SummarySidebar
+          s={active.summary} hasCosts={active.hasCosts}
+          adSpend={adSpend} setAdSpend={setAdSpend}
+          promotionLabel="Реклама (аукцион)"
+        />
+      )}
       <div className="flex-1 flex flex-col overflow-hidden" onClick={() => setEditingArticle(null)}>
 
         {!hasData && (
@@ -1129,7 +1153,8 @@ function YmTabContent({ mp, api }: {
             <div className="flex-1 overflow-auto">
               <SkuTable rows={active.calculatedRows} costs={active.costs}
                 editingArticle={editingArticle} setEditing={setEditingArticle}
-                updateCost={active.updateCost} />
+                updateCost={active.updateCost}
+                spendByArticle={ymSpendByArticle} />
             </div>
           </>
         ) : (
