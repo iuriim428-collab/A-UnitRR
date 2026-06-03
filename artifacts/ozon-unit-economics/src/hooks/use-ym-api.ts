@@ -39,6 +39,20 @@ export function useYmApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
   const setToken      = useCallback((v: string) => { setTokenState(v);      localStorage.setItem(LS('token'),       v); }, []);
   const setCampaignId = useCallback((v: string) => { setCampaignIdState(v); localStorage.setItem(LS('campaign_id'), v); }, []);
 
+  // Derived helpers for chips UI
+  const campaignIds = useMemo(
+    () => campaignId.split(',').map(s => s.trim()).filter(Boolean),
+    [campaignId],
+  );
+  const addCampaignId = useCallback((id: string) => {
+    const trimmed = id.trim();
+    if (!trimmed) return;
+    setCampaignId([...campaignId.split(',').map(s => s.trim()).filter(Boolean), trimmed].join(', '));
+  }, [campaignId, setCampaignId]);
+  const removeCampaignId = useCallback((id: string) => {
+    setCampaignId(campaignId.split(',').map(s => s.trim()).filter(s => s && s !== id).join(', '));
+  }, [campaignId, setCampaignId]);
+
   const calculatedRows = useMemo((): CalculatedRow[] =>
     rows
       .map(r => calcRow(r, costs[r.article] ?? DEFAULT_COST, tax))
@@ -106,6 +120,7 @@ export function useYmApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
     hasCosts: Object.keys(costs).length > 0,
     token,      setToken,
     campaignId, setCampaignId,
+    campaignIds, addCampaignId, removeCampaignId,
     dateFrom, setDateFrom,
     dateTo,   setDateTo,
     loadReport, clear, updateCost,

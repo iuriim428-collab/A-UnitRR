@@ -824,8 +824,49 @@ function DropZone({ kind, loading, error, onSelectFolder, onDropFiles }: {
   );
 }
 
+// ─── Chips input for multi-value fields ───────────────────────────────────────
+function ChipsInput({ chips }: { chips: NonNullable<ApiBarField['chips']> }) {
+  const [draft, setDraft] = useState('');
+  const commit = () => {
+    const v = draft.trim();
+    if (v) { chips.onAdd(v); setDraft(''); }
+  };
+  return (
+    <div className="flex items-center gap-1 flex-wrap flex-1 min-w-0 bg-muted/30 border border-border px-1.5 py-0.5">
+      {chips.ids.map(id => (
+        <span key={id} className="flex items-center gap-1 px-2 py-0.5 bg-yellow-600/20 border border-yellow-600/30 text-yellow-300 font-mono text-[10px]">
+          {id}
+          <button onClick={() => chips.onRemove(id)} className="text-yellow-400/60 hover:text-red-400 ml-0.5">
+            <X className="w-2.5 h-2.5" />
+          </button>
+        </span>
+      ))}
+      <input
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); commit(); } }}
+        onBlur={commit}
+        placeholder={chips.ids.length === 0 ? '12345678' : '+ ID…'}
+        className="flex-1 min-w-[80px] bg-transparent text-[11px] font-mono outline-none placeholder:text-muted-foreground/40 py-0.5"
+      />
+    </div>
+  );
+}
+
 // ─── Generic API settings bar ─────────────────────────────────────────────────
-interface ApiBarField { label: string; value: string; onChange: (v: string) => void; secret?: boolean; placeholder?: string; }
+interface ApiBarField {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  secret?: boolean;
+  placeholder?: string;
+  /** Renders value as removable chips + add-input instead of plain text field */
+  chips?: {
+    ids: string[];
+    onAdd: (id: string) => void;
+    onRemove: (id: string) => void;
+  };
+}
 
 function ApiSettingsBar({ fields, dateFrom, setDateFrom, dateTo, setDateTo, loading, error, statusLine, onLoad, onClear, hasData, accentColor }: {
   fields: ApiBarField[];
@@ -855,20 +896,24 @@ function ApiSettingsBar({ fields, dateFrom, setDateFrom, dateTo, setDateTo, load
           <div key={i} className="flex items-center gap-1.5 flex-1 min-w-[220px]">
             <Key className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
             <span className="text-muted-foreground whitespace-nowrap">{f.label}:</span>
-            <div className="relative flex-1">
-              <input
-                type={f.secret && !showSecrets[i] ? 'password' : 'text'}
-                value={f.value} onChange={e => f.onChange(e.target.value)}
-                placeholder={f.placeholder ?? ''}
-                className="w-full bg-muted/30 border border-border px-2 py-1 pr-7 text-[11px] font-mono outline-none focus:border-primary/60 placeholder:text-muted-foreground/40"
-              />
-              {f.secret && (
-                <button onClick={() => setShowSecrets(p => ({ ...p, [i]: !p[i] }))}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground">
-                  {showSecrets[i] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                </button>
-              )}
-            </div>
+            {f.chips ? (
+              <ChipsInput chips={f.chips} />
+            ) : (
+              <div className="relative flex-1">
+                <input
+                  type={f.secret && !showSecrets[i] ? 'password' : 'text'}
+                  value={f.value} onChange={e => f.onChange(e.target.value)}
+                  placeholder={f.placeholder ?? ''}
+                  className="w-full bg-muted/30 border border-border px-2 py-1 pr-7 text-[11px] font-mono outline-none focus:border-primary/60 placeholder:text-muted-foreground/40"
+                />
+                {f.secret && (
+                  <button onClick={() => setShowSecrets(p => ({ ...p, [i]: !p[i] }))}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground">
+                    {showSecrets[i] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ))}
 
@@ -1175,7 +1220,8 @@ function YmTabContent({ mp, api, selectedArticles, onToggleSelect }: {
             accentColor="bg-yellow-600 hover:bg-yellow-500"
             fields={[
               { label: 'Api-Key', value: api.token,      onChange: api.setToken,      placeholder: 'ЯНДЕКС_АПИ_КЛЮЧ…', secret: true },
-              { label: 'ID кампаний', value: api.campaignId, onChange: api.setCampaignId, placeholder: '149095778, 149103486' },
+              { label: 'ID складов', value: api.campaignId, onChange: api.setCampaignId,
+                chips: { ids: api.campaignIds, onAdd: api.addCampaignId, onRemove: api.removeCampaignId } },
             ]}
             dateFrom={api.dateFrom} setDateFrom={api.setDateFrom}
             dateTo={api.dateTo}     setDateTo={api.setDateTo}
