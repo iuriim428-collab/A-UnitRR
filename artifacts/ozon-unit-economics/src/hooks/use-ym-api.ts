@@ -57,14 +57,36 @@ export function useYmApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
 
   const loadReport = useCallback(async () => {
     if (!token.trim())      { setError('Введите Api-Key из кабинета продавца'); return; }
-    if (!campaignId.trim()) { setError('Введите ID кампании'); return; }
+    if (!campaignId.trim()) { setError('Введите ID кампании (несколько — через запятую)'); return; }
+
+    const ids = campaignId.split(',').map(s => s.trim()).filter(Boolean);
+    if (ids.length === 0) { setError('Введите хотя бы один ID кампании'); return; }
+
     setLoading(true); setError(null);
     try {
-      const orders = await fetchYMReport(token.trim(), campaignId.trim(), dateFrom, dateTo);
-      const parsed = parseYMOrders(orders);
-      setOrderCount(orders.length);
+      const allOrders: Awaited<ReturnType<typeof fetchYMReport>> = [];
+      const errors: string[] = [];
+
+      for (const id of ids) {
+        try {
+          const orders = await fetchYMReport(token.trim(), id, dateFrom, dateTo);
+          allOrders.push(...orders);
+        } catch (e) {
+          errors.push(`[${id}]: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      const parsed = parseYMOrders(allOrders);
+      setOrderCount(allOrders.length);
       setRows(parsed);
-      if (parsed.length === 0) setError('Нет данных за выбранный период');
+
+      if (errors.length > 0 && parsed.length === 0) {
+        setError(errors.join(' | '));
+      } else if (errors.length > 0) {
+        setError(`Часть кампаний загружена с ошибкой: ${errors.join(' | ')}`);
+      } else if (parsed.length === 0) {
+        setError('Нет данных за выбранный период');
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка загрузки');
       setRows([]);

@@ -1175,7 +1175,7 @@ function YmTabContent({ mp, api, selectedArticles, onToggleSelect }: {
             accentColor="bg-yellow-600 hover:bg-yellow-500"
             fields={[
               { label: 'Api-Key', value: api.token,      onChange: api.setToken,      placeholder: 'ЯНДЕКС_АПИ_КЛЮЧ…', secret: true },
-              { label: 'ID кампании', value: api.campaignId, onChange: api.setCampaignId, placeholder: '12345678' },
+              { label: 'ID кампаний', value: api.campaignId, onChange: api.setCampaignId, placeholder: '149095778, 149103486' },
             ]}
             dateFrom={api.dateFrom} setDateFrom={api.setDateFrom}
             dateTo={api.dateTo}     setDateTo={api.setDateTo}
@@ -1223,7 +1223,9 @@ function YmTabContent({ mp, api, selectedArticles, onToggleSelect }: {
                   '3. Скопируйте Api-Key и вставьте выше',
                   '4. ID кампании — в URL кабинета:',
                   '   .../business/.../campaigns/{ID}/...',
-                  '5. Доступны: продажи, комиссия, возвраты',
+                  '5. Несколько складов — через запятую:',
+                  '   149095778, 149103486',
+                  '6. Доступны: продажи, комиссия, возвраты',
                 ]}
               />
             )
