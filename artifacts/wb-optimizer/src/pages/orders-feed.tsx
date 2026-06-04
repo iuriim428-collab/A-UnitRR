@@ -133,12 +133,17 @@ export default function OrdersFeed() {
   const effectiveFrom = mode === "today" ? todayStr() : appliedFrom;
   const effectiveTo = mode === "today" ? todayStr() : appliedTo;
 
-  const { data, isLoading, refetch, isFetching, dataUpdatedAt } = useQuery({
+  const { data, isLoading, isError, refetch, isFetching, dataUpdatedAt } = useQuery({
     queryKey: ["orders-feed", effectiveFrom, effectiveTo],
-    queryFn: () =>
-      fetch(`/api/orders-feed?from=${effectiveFrom}&to=${effectiveTo}`).then((r) => r.json()),
+    queryFn: async () => {
+      const r = await fetch(`/api/orders-feed?from=${effectiveFrom}&to=${effectiveTo}`);
+      const json = await r.json();
+      if (!r.ok || json?.error) throw new Error(json?.error ?? `HTTP ${r.status}`);
+      return json;
+    },
     staleTime: mode === "today" ? 55_000 : 300_000,
     refetchInterval: mode === "today" ? 60_000 : false,
+    retry: false,
   });
 
   const secondsAgo = useSecondsAgo(dataUpdatedAt);
@@ -309,6 +314,14 @@ export default function OrdersFeed() {
         <div className="flex items-center gap-3 text-muted-foreground py-4">
           <Loader2 className="h-4 w-4 animate-spin" />
           <span>Запрос к API всех площадок…</span>
+        </div>
+      )}
+
+      {isError && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          <strong>Ошибка загрузки:</strong>{" "}
+          Не удалось получить заказы. Проверьте, что API-ключи введены в{" "}
+          <a href="/settings" className="underline font-medium">Настройках</a>.
         </div>
       )}
 

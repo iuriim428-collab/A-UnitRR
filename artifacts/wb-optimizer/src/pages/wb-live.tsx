@@ -84,11 +84,16 @@ export default function WbLive() {
   const [appliedTo, setAppliedTo] = useState(today());
   const [openNm, setOpenNm] = useState<number | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["wb-live-products", appliedFrom, appliedTo],
-    queryFn: () =>
-      fetch(`/api/wb-live/products?from=${appliedFrom}&to=${appliedTo}`).then((r) => r.json()),
+    queryFn: async () => {
+      const r = await fetch(`/api/wb-live/products?from=${appliedFrom}&to=${appliedTo}`);
+      const json = await r.json();
+      if (!r.ok || json?.error) throw new Error(json?.error ?? `HTTP ${r.status}`);
+      return json;
+    },
     staleTime: 120_000,
+    retry: false,
   });
 
   const { data: stockData } = useQuery({
@@ -101,6 +106,7 @@ export default function WbLive() {
   const rows: any[] = data?.rows ?? [];
   const totals = data?.totals;
   const stocks: any[] = stockData?.stocks ?? [];
+  const errorMsg = isError ? (data as any)?.error ?? "Ошибка загрузки данных" : null;
 
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-6">
@@ -126,6 +132,15 @@ export default function WbLive() {
         <div className="flex items-center gap-3 text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           <span>Запрос к WB Statistics API...</span>
+        </div>
+      )}
+
+      {isError && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          <strong>Ошибка:</strong>{" "}
+          {(data as any)?.error ?? "Не удалось загрузить данные."}
+          {" "}
+          <a href="/settings" className="underline font-medium">Проверьте настройки API</a>
         </div>
       )}
 
