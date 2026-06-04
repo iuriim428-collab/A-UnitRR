@@ -7,7 +7,6 @@ import { toast } from "@/hooks/use-toast";
 import { Loader2, RefreshCw, ShoppingBag, Clock, Bell, BellOff, MonitorSpeaker } from "lucide-react";
 import { useNewOrders } from "@/contexts/new-orders-context";
 
-const BASE = () => import.meta.env.BASE_URL.replace(/\/$/, "");
 
 const fmt = (n: number | null | undefined, dec = 0) =>
   n == null || isNaN(Number(n))
@@ -137,7 +136,7 @@ export default function OrdersFeed() {
   const { data, isLoading, refetch, isFetching, dataUpdatedAt } = useQuery({
     queryKey: ["orders-feed", effectiveFrom, effectiveTo],
     queryFn: () =>
-      fetch(`${BASE()}/api/orders-feed?from=${effectiveFrom}&to=${effectiveTo}`).then((r) => r.json()),
+      fetch(`/api/orders-feed?from=${effectiveFrom}&to=${effectiveTo}`).then((r) => r.json()),
     staleTime: mode === "today" ? 55_000 : 300_000,
     refetchInterval: mode === "today" ? 60_000 : false,
   });

@@ -8,7 +8,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
-const BASE = () => import.meta.env.BASE_URL.replace(/\/$/, "");
 const YM_COLOR = "#fc3f1d";
 
 interface Report {
@@ -56,11 +55,11 @@ export default function YmCpm() {
 
   const { data: reports = [], isLoading } = useQuery<Report[]>({
     queryKey: ["ym-cpm-reports"],
-    queryFn: async () => (await fetch(`${BASE()}/api/ym/cpm-reports`)).json(),
+    queryFn: async () => (await fetch(`/api/ym/cpm-reports`)).json(),
   });
 
   const deleteReport = useMutation({
-    mutationFn: async (id: number) => { await fetch(`${BASE()}/api/ym/cpm-reports/${id}`, { method: "DELETE" }); },
+    mutationFn: async (id: number) => { await fetch(`/api/ym/cpm-reports/${id}`, { method: "DELETE" }); },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["ym-cpm-reports"] }); setSelected(null); toast({ title: "Отчёт удалён" }); },
   });
 
@@ -129,12 +128,12 @@ function ReportDetail({ report, onBack }: { report: Report; onBack: () => void }
 
   const { data: skus = [], isLoading: skuLoading } = useQuery<SkuRow[]>({
     queryKey: ["ym-cpm-skus", report.id],
-    queryFn: async () => (await fetch(`${BASE()}/api/ym/cpm-reports/${report.id}/skus`)).json(),
+    queryFn: async () => (await fetch(`/api/ym/cpm-reports/${report.id}/skus`)).json(),
   });
 
   const { data: campData, isLoading: campLoading } = useQuery<{ campaigns: CampaignAgg[]; trend: TrendPoint[] }>({
     queryKey: ["ym-cpm-campaigns", report.id],
-    queryFn: async () => (await fetch(`${BASE()}/api/ym/cpm-reports/${report.id}/campaigns`)).json(),
+    queryFn: async () => (await fetch(`/api/ym/cpm-reports/${report.id}/campaigns`)).json(),
   });
 
   const campaigns = campData?.campaigns ?? [];
@@ -356,7 +355,7 @@ function UploadCpmReport({ onImported }: { onImported: () => void }) {
     const fd = new FormData();
     fd.append("file", file);
     try {
-      const res = await fetch(`${BASE()}/api/ym/import/cpm-boost`, { method: "POST", body: fd });
+      const res = await fetch(`/api/ym/import/cpm-boost`, { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "Ошибка"); }
       else { setResult(data); onImported(); toast({ title: "Импорт завершён", description: data.message }); }

@@ -8,7 +8,6 @@ import { Upload, FileSpreadsheet, Loader2, Trash2, ChevronLeft, AlertCircle, Che
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 
-const BASE = () => import.meta.env.BASE_URL.replace(/\/$/, "");
 
 interface Report {
   id: number;
@@ -76,14 +75,14 @@ export default function OzonAd() {
   const { data: reports = [], isLoading } = useQuery<Report[]>({
     queryKey: ["ozon-ad-reports"],
     queryFn: async () => {
-      const r = await fetch(`${BASE()}/api/ozon/ad-reports`);
+      const r = await fetch(`/api/ozon/ad-reports`);
       return r.json();
     },
   });
 
   const deleteReport = useMutation({
     mutationFn: async (id: number) => {
-      await fetch(`${BASE()}/api/ozon/ad-reports/${id}`, { method: "DELETE" });
+      await fetch(`/api/ozon/ad-reports/${id}`, { method: "DELETE" });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["ozon-ad-reports"] });
@@ -160,7 +159,7 @@ function ReportDetail({ report, onBack }: { report: Report; onBack: () => void }
   const { data: skus = [], isLoading: skusLoading } = useQuery<SkuRow[]>({
     queryKey: ["ozon-ad-skus", report.id],
     queryFn: async () => {
-      const r = await fetch(`${BASE()}/api/ozon/ad-reports/${report.id}/rows`);
+      const r = await fetch(`/api/ozon/ad-reports/${report.id}/rows`);
       return r.json();
     },
   });
@@ -168,7 +167,7 @@ function ReportDetail({ report, onBack }: { report: Report; onBack: () => void }
   const { data: campaigns = [], isLoading: campsLoading } = useQuery<CampaignRow[]>({
     queryKey: ["ozon-ad-campaigns", report.id],
     queryFn: async () => {
-      const r = await fetch(`${BASE()}/api/ozon/ad-reports/${report.id}/campaigns`);
+      const r = await fetch(`/api/ozon/ad-reports/${report.id}/campaigns`);
       return r.json();
     },
   });
@@ -334,7 +333,7 @@ function UploadOzonReport({ onImported }: { onImported: () => void }) {
     const fd = new FormData();
     fd.append("file", file);
     try {
-      const res = await fetch(`${BASE()}/api/ozon/import/ad-report`, { method: "POST", body: fd });
+      const res = await fetch(`/api/ozon/import/ad-report`, { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "Ошибка"); }
       else { setResult(data); onImported(); toast({ title: "Импорт завершён", description: data.message }); }

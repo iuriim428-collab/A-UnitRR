@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Loader2, Clock } from "lucide-react";
 
-const BASE = () => import.meta.env.BASE_URL.replace(/\/$/, "");
 
 const fmt = (n: number | null | undefined, dec = 0) =>
   n == null || isNaN(Number(n))
@@ -120,7 +119,7 @@ export default function OrdersHeatmap() {
   const { data, isLoading, isFetching, refetch, dataUpdatedAt } = useQuery({
     queryKey: ["orders-feed", effectiveFrom, effectiveTo],
     queryFn: () =>
-      fetch(`${BASE()}/api/orders-feed?from=${effectiveFrom}&to=${effectiveTo}`).then((r) => r.json()),
+      fetch(`/api/orders-feed?from=${effectiveFrom}&to=${effectiveTo}`).then((r) => r.json()),
     staleTime: mode === "today" ? 55_000 : 300_000,
     refetchInterval: mode === "today" ? 60_000 : false,
   });

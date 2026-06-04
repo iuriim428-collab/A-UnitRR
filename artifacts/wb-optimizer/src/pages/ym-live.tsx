@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, ChevronDown, ChevronRight, Package } from "lucide-react";
 
-const BASE = () => import.meta.env.BASE_URL.replace(/\/$/, "");
 
 const fmt = (n: number | null | undefined, dec = 0) => {
   if (n == null || isNaN(Number(n))) return "—";
@@ -25,7 +24,7 @@ export default function YmLive() {
   const { data, isLoading } = useQuery({
     queryKey: ["ym-live-products", appliedFrom, appliedTo],
     queryFn: () =>
-      fetch(`${BASE()}/api/ym-live/products?from=${appliedFrom}&to=${appliedTo}`).then((r) => r.json()),
+      fetch(`/api/ym-live/products?from=${appliedFrom}&to=${appliedTo}`).then((r) => r.json()),
     staleTime: 120_000,
   });
 

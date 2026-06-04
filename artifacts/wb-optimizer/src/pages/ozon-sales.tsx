@@ -7,7 +7,6 @@ import { Upload, FileSpreadsheet, Loader2, Trash2, ChevronLeft, AlertCircle, Che
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 
-const BASE = () => import.meta.env.BASE_URL.replace(/\/$/, "");
 
 interface Report {
   id: number;
@@ -86,11 +85,11 @@ export default function OzonSales() {
 
   const { data: reports = [], isLoading } = useQuery<Report[]>({
     queryKey: ["ozon-sales-reports"],
-    queryFn: async () => (await fetch(`${BASE()}/api/ozon/sales-reports`)).json(),
+    queryFn: async () => (await fetch(`/api/ozon/sales-reports`)).json(),
   });
 
   const deleteReport = useMutation({
-    mutationFn: async (id: number) => { await fetch(`${BASE()}/api/ozon/sales-reports/${id}`, { method: "DELETE" }); },
+    mutationFn: async (id: number) => { await fetch(`/api/ozon/sales-reports/${id}`, { method: "DELETE" }); },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["ozon-sales-reports"] }); setSelected(null); toast({ title: "Отчёт удалён" }); },
   });
 
@@ -159,7 +158,7 @@ function ReportDetail({ report, onBack }: { report: Report; onBack: () => void }
 
   const { data: rows = [], isLoading } = useQuery<SalesRow[]>({
     queryKey: ["ozon-sales-rows", report.id],
-    queryFn: async () => (await fetch(`${BASE()}/api/ozon/sales-reports/${report.id}/rows`)).json(),
+    queryFn: async () => (await fetch(`/api/ozon/sales-reports/${report.id}/rows`)).json(),
   });
 
   const urgentRows = rows.filter((r) => r.isUrgent);
@@ -318,7 +317,7 @@ function UploadSalesReport({ onImported }: { onImported: () => void }) {
     const fd = new FormData();
     fd.append("file", file);
     try {
-      const res = await fetch(`${BASE()}/api/ozon/import/sales-report`, { method: "POST", body: fd });
+      const res = await fetch(`/api/ozon/import/sales-report`, { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "Ошибка"); }
       else { setResult(data); onImported(); toast({ title: "Импорт завершён", description: data.message }); }

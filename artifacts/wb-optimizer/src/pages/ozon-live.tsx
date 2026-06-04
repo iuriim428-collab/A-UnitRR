@@ -8,7 +8,6 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 
-const BASE = () => import.meta.env.BASE_URL.replace(/\/$/, "");
 
 const fmt = (n: number | null | undefined, dec = 0) => {
   if (n === null || n === undefined || isNaN(Number(n))) return "—";
@@ -33,7 +32,7 @@ function DynArrow({ val }: { val: number }) {
 function SkuDetail({ sku, from, to }: { sku: string; from: string; to: string }) {
   const { data, isLoading } = useQuery({
     queryKey: ["ozon-live-sku", sku, from, to],
-    queryFn: () => fetch(`${BASE()}/api/ozon-live/sku/${sku}?from=${from}&to=${to}`).then((r) => r.json()),
+    queryFn: () => fetch(`/api/ozon-live/sku/${sku}?from=${from}&to=${to}`).then((r) => r.json()),
     staleTime: 60_000,
   });
 
@@ -212,7 +211,7 @@ export default function OzonLive() {
   const { data, isLoading } = useQuery({
     queryKey: ["ozon-live-products", appliedFrom, appliedTo],
     queryFn: () =>
-      fetch(`${BASE()}/api/ozon-live/products?from=${appliedFrom}&to=${appliedTo}`).then((r) => r.json()),
+      fetch(`/api/ozon-live/products?from=${appliedFrom}&to=${appliedTo}`).then((r) => r.json()),
     staleTime: 60_000,
   });
 

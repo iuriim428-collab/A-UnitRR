@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, ChevronDown, ChevronRight, Package, Warehouse } from "lucide-react";
 
-const BASE = () => import.meta.env.BASE_URL.replace(/\/$/, "");
 
 const fmt = (n: number | null | undefined, dec = 0) => {
   if (n == null || isNaN(Number(n))) return "—";
@@ -88,13 +87,13 @@ export default function WbLive() {
   const { data, isLoading } = useQuery({
     queryKey: ["wb-live-products", appliedFrom, appliedTo],
     queryFn: () =>
-      fetch(`${BASE()}/api/wb-live/products?from=${appliedFrom}&to=${appliedTo}`).then((r) => r.json()),
+      fetch(`/api/wb-live/products?from=${appliedFrom}&to=${appliedTo}`).then((r) => r.json()),
     staleTime: 120_000,
   });
 
   const { data: stockData } = useQuery({
     queryKey: ["wb-live-stocks"],
-    queryFn: () => fetch(`${BASE()}/api/wb-live/stocks`).then((r) => r.json()),
+    queryFn: () => fetch(`/api/wb-live/stocks`).then((r) => r.json()),
     staleTime: 300_000,
   });
 

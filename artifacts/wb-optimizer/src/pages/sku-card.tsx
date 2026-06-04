@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Search, AlertTriangle, Package, TrendingUp, ShoppingCart, Eye, Store } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
-const BASE = () => import.meta.env.BASE_URL.replace(/\/$/, "");
 
 interface OzonSalesRow {
   period: string | null; productName: string; sku: string; article: string | null;
@@ -94,7 +93,7 @@ export default function SkuCard() {
   const { data, isLoading, isFetched } = useQuery<SkuCardData>({
     queryKey: ["sku-card", query],
     queryFn: async () => {
-      const r = await fetch(`${BASE()}/api/sku-card?article=${encodeURIComponent(query)}`);
+      const r = await fetch(`/api/sku-card?article=${encodeURIComponent(query)}`);
       return r.json();
     },
     enabled: query.trim().length > 0,

@@ -8,7 +8,6 @@ import { Upload, FileSpreadsheet, Loader2, Trash2, ChevronLeft, AlertCircle, Che
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 
-const BASE = () => import.meta.env.BASE_URL.replace(/\/$/, "");
 
 interface Report {
   id: number;
@@ -79,14 +78,14 @@ export default function YmBoost() {
   const { data: reports = [], isLoading: reportsLoading } = useQuery<Report[]>({
     queryKey: ["ym-boost-reports"],
     queryFn: async () => {
-      const r = await fetch(`${BASE()}/api/ym/boost/reports`);
+      const r = await fetch(`/api/ym/boost/reports`);
       return r.json();
     },
   });
 
   const deleteReport = useMutation({
     mutationFn: async (id: number) => {
-      await fetch(`${BASE()}/api/ym/boost/reports/${id}`, { method: "DELETE" });
+      await fetch(`/api/ym/boost/reports/${id}`, { method: "DELETE" });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["ym-boost-reports"] });
@@ -167,7 +166,7 @@ function ReportDetail({ report, onBack }: { report: Report; onBack: () => void }
   const { data: skus = [], isLoading: skusLoading } = useQuery<SkuRow[]>({
     queryKey: ["ym-boost-skus", report.id],
     queryFn: async () => {
-      const r = await fetch(`${BASE()}/api/ym/boost/reports/${report.id}/skus`);
+      const r = await fetch(`/api/ym/boost/reports/${report.id}/skus`);
       return r.json();
     },
   });
@@ -175,7 +174,7 @@ function ReportDetail({ report, onBack }: { report: Report; onBack: () => void }
   const { data: campaigns = [], isLoading: campsLoading } = useQuery<CampaignRow[]>({
     queryKey: ["ym-boost-campaigns", report.id],
     queryFn: async () => {
-      const r = await fetch(`${BASE()}/api/ym/boost/reports/${report.id}/campaigns`);
+      const r = await fetch(`/api/ym/boost/reports/${report.id}/campaigns`);
       return r.json();
     },
   });
@@ -327,7 +326,7 @@ function UploadBoostReport({ onImported }: { onImported: () => void }) {
     const fd = new FormData();
     fd.append("file", file);
     try {
-      const res = await fetch(`${BASE()}/api/ym/import/boost`, { method: "POST", body: fd });
+      const res = await fetch(`/api/ym/import/boost`, { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "Ошибка"); }
       else { setResult(data); onImported(); toast({ title: "Импорт завершён", description: data.message }); }

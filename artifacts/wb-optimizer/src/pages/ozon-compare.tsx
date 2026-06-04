@@ -7,7 +7,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, AlertTriangle, Layers } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
-const BASE = () => import.meta.env.BASE_URL.replace(/\/$/, "");
 
 interface Report { id: number; filename: string; period: string | null; }
 
@@ -77,7 +76,7 @@ export default function OzonCompare() {
   const { data: adReports = [], isLoading: adLoading } = useQuery<Report[]>({
     queryKey: ["ozon-ad-reports"],
     queryFn: async () => {
-      const r = await fetch(`${BASE()}/api/ozon/ad-reports`);
+      const r = await fetch(`/api/ozon/ad-reports`);
       return r.json();
     },
     staleTime: 0,
@@ -86,7 +85,7 @@ export default function OzonCompare() {
   const { data: salesReports = [], isLoading: salesLoading } = useQuery<Report[]>({
     queryKey: ["ozon-sales-reports"],
     queryFn: async () => {
-      const r = await fetch(`${BASE()}/api/ozon/sales-reports`);
+      const r = await fetch(`/api/ozon/sales-reports`);
       return r.json();
     },
     staleTime: 0,
@@ -97,7 +96,7 @@ export default function OzonCompare() {
   const { data: rows = [], isLoading } = useQuery<CompareRow[]>({
     queryKey: ["ozon-compare", adReportId, salesReportId],
     queryFn: async () => {
-      const r = await fetch(`${BASE()}/api/ozon/compare?adReportId=${adReportId}&salesReportId=${salesReportId}`);
+      const r = await fetch(`/api/ozon/compare?adReportId=${adReportId}&salesReportId=${salesReportId}`);
       return r.json();
     },
     enabled: runCompare && !!adReportId && !!salesReportId,

@@ -7,7 +7,6 @@ import {
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
-const BASE = () => import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type Tab = "wb" | "ozon" | "ym";
 
@@ -56,13 +55,13 @@ function WbPanel() {
 
   const suppliesQ = useQuery<{ supplies: WbSupply[] }>({
     queryKey: ["wb-supplies"],
-    queryFn: () => fetch(`${BASE()}/api/shipments/wb/supplies`).then((r) => r.json()),
+    queryFn: () => fetch(`/api/shipments/wb/supplies`).then((r) => r.json()),
     staleTime: 60_000,
   });
 
   const newOrdersQ = useQuery<{ orders: WbNewOrder[] }>({
     queryKey: ["wb-new-orders"],
-    queryFn: () => fetch(`${BASE()}/api/shipments/wb/orders/new`).then((r) => r.json()),
+    queryFn: () => fetch(`/api/shipments/wb/orders/new`).then((r) => r.json()),
     enabled: showNewOrders,
     staleTime: 60_000,
   });
@@ -70,7 +69,7 @@ function WbPanel() {
   const supplyOrdersQ = useQuery<{ orders: any[] }>({
     queryKey: ["wb-supply-orders", expandedSupply],
     queryFn: () =>
-      fetch(`${BASE()}/api/shipments/wb/supplies/${expandedSupply}/orders`).then((r) => r.json()),
+      fetch(`/api/shipments/wb/supplies/${expandedSupply}/orders`).then((r) => r.json()),
     enabled: !!expandedSupply,
     staleTime: 60_000,
   });
@@ -83,7 +82,7 @@ function WbPanel() {
 
   const createMut = useMutation({
     mutationFn: (name: string) =>
-      fetch(`${BASE()}/api/shipments/wb/supplies`, {
+      fetch(`/api/shipments/wb/supplies`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       }).then((r) => r.json()),
@@ -98,7 +97,7 @@ function WbPanel() {
     mutationFn: async ({ supplyId, orderIds }: { supplyId: string; orderIds: number[] }) => {
       const results = await Promise.allSettled(
         orderIds.map((id) =>
-          fetch(`${BASE()}/api/shipments/wb/supplies/${supplyId}/orders/${id}`, { method: "PUT" })
+          fetch(`/api/shipments/wb/supplies/${supplyId}/orders/${id}`, { method: "PUT" })
         )
       );
       const failed = results.filter((r) => r.status === "rejected").length;
@@ -117,20 +116,20 @@ function WbPanel() {
 
   const removeOrderMut = useMutation({
     mutationFn: ({ supplyId, orderId }: { supplyId: string; orderId: number }) =>
-      fetch(`${BASE()}/api/shipments/wb/supplies/${supplyId}/orders/${orderId}`, { method: "DELETE" }).then((r) => r.json()),
+      fetch(`/api/shipments/wb/supplies/${supplyId}/orders/${orderId}`, { method: "DELETE" }).then((r) => r.json()),
     onSuccess: () => { toast({ title: "Заказ удалён из поставки" }); invalidate(); },
     onError: (e: any) => toast({ title: "Ошибка", description: e.message, variant: "destructive" }),
   });
 
   const deliverMut = useMutation({
     mutationFn: (supplyId: string) =>
-      fetch(`${BASE()}/api/shipments/wb/supplies/${supplyId}/deliver`, { method: "POST" }).then((r) => r.json()),
+      fetch(`/api/shipments/wb/supplies/${supplyId}/deliver`, { method: "POST" }).then((r) => r.json()),
     onSuccess: () => { toast({ title: "Поставка закрыта и передана в WB" }); invalidate(); },
     onError: (e: any) => toast({ title: "Ошибка закрытия", description: e.message, variant: "destructive" }),
   });
 
   const downloadBarcode = (supplyId: string) => {
-    const url = `${BASE()}/api/shipments/wb/supplies/${supplyId}/barcode?type=png`;
+    const url = `/api/shipments/wb/supplies/${supplyId}/barcode?type=png`;
     openBlob(url, `supply-${supplyId}.png`);
   };
 
@@ -460,13 +459,13 @@ function OzonPanel() {
 
   const { data, isLoading, isFetching, refetch } = useQuery<{ postings: OzonPosting[] }>({
     queryKey: ["ozon-fbs-postings"],
-    queryFn: () => fetch(`${BASE()}/api/shipments/ozon/fbs`).then((r) => r.json()),
+    queryFn: () => fetch(`/api/shipments/ozon/fbs`).then((r) => r.json()),
     staleTime: 60_000,
   });
 
   const shipMut = useMutation({
     mutationFn: (p: OzonPosting) =>
-      fetch(`${BASE()}/api/shipments/ozon/fbs/${p.postingNumber}/ship`, {
+      fetch(`/api/shipments/ozon/fbs/${p.postingNumber}/ship`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ products: p.products.map((pr) => ({ sku: pr.sku, qty: pr.qty })) }),
@@ -483,7 +482,7 @@ function OzonPanel() {
   });
 
   const downloadLabel = (postingNumber: string) => {
-    openBlob(`${BASE()}/api/shipments/ozon/fbs/${postingNumber}/label`, `label-${postingNumber}.pdf`);
+    openBlob(`/api/shipments/ozon/fbs/${postingNumber}/label`, `label-${postingNumber}.pdf`);
   };
 
   const postings = data?.postings ?? [];
@@ -664,13 +663,13 @@ function YmPanel() {
 
   const { data, isLoading, isFetching, refetch } = useQuery<{ orders: YmOrder[] }>({
     queryKey: ["ym-pending-orders"],
-    queryFn: () => fetch(`${BASE()}/api/shipments/ym/pending`).then((r) => r.json()),
+    queryFn: () => fetch(`/api/shipments/ym/pending`).then((r) => r.json()),
     staleTime: 60_000,
   });
 
   const confirmMut = useMutation({
     mutationFn: (orderId: number) =>
-      fetch(`${BASE()}/api/shipments/ym/fbs/${orderId}/confirm`, { method: "POST" })
+      fetch(`/api/shipments/ym/fbs/${orderId}/confirm`, { method: "POST" })
         .then(async (r) => { if (!r.ok) throw new Error(await r.text()); return r.json(); }),
     onSuccess: (_d, id) => {
       toast({ title: "Статус обновлён", description: `Заказ #${id} готов к отгрузке` });
@@ -681,7 +680,7 @@ function YmPanel() {
   });
 
   const downloadLabel = (orderId: number) => {
-    openBlob(`${BASE()}/api/shipments/ym/fbs/${orderId}/label`, `label-ym-${orderId}.pdf`);
+    openBlob(`/api/shipments/ym/fbs/${orderId}/label`, `label-ym-${orderId}.pdf`);
   };
 
   const orders = data?.orders ?? [];

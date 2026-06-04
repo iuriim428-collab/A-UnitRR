@@ -4,7 +4,6 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Megaphone, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 
-const BASE = () => import.meta.env.BASE_URL.replace(/\/$/, "");
 
 const fmt = (n: number) => n.toLocaleString("ru-RU");
 
@@ -51,7 +50,7 @@ export default function OzonCampaigns() {
 
   const { data, isLoading } = useQuery<{ campaigns: Campaign[] }>({
     queryKey: ["ozon-campaigns"],
-    queryFn: () => fetch(`${BASE()}/api/ozon-live/campaigns`).then((r) => r.json()),
+    queryFn: () => fetch(`/api/ozon-live/campaigns`).then((r) => r.json()),
     staleTime: 3600_000,
   });
 
