@@ -5,32 +5,52 @@ description: PGlite/drizzle-orm peer-dep and electron-builder Wine issue on Linu
 
 ## Problem 1: drizzle-orm PGlite peer-dep crashes api-server
 
-Installing `@electric-sql/pglite` in `lib/db` causes pnpm to resolve `drizzle-orm` with a peer-dep variant (`drizzle-orm@x.x.x_@electric-sql+pglite@x.x.x`) that statically imports `@electric-sql/pglite` in `pglite/session.js`. esbuild marks pglite as external, so the static ESM import remains in the bundle. Node.js must resolve it at link time — and fails if pglite is not in any `node_modules` reachable from `artifacts/api-server/dist/`.
+Installing `@electric-sql/pglite` in `lib/db` causes pnpm to resolve `drizzle-orm` with a peer-dep variant that statically imports `@electric-sql/pglite` in `pglite/session.js`. esbuild marks pglite as external, so the static ESM import remains in the bundle. Node.js must resolve it at link time — fails if pglite not reachable from `artifacts/api-server/dist/`.
 
-**Fix:** Add `@electric-sql/pglite` to `artifacts/api-server/package.json` dependencies. Then pnpm installs it in `artifacts/api-server/node_modules/`, making it resolvable at runtime.
+**Fix:** Add `@electric-sql/pglite` to `artifacts/api-server/package.json` dependencies.
 
-**Why:** Even in Replit (where PGlite is never used), the bundle statically imports pglite because drizzle-orm's peer-dep version includes the pglite driver. The import is harmless at runtime (PGlite is only instantiated when DATABASE_URL starts with `pglite://`).
+## Problem 2: electron-builder NSIS on Linux requires Wine
 
-## Problem 2: electron-builder on Linux requires Wine for Windows builds
+electron-builder v25.x uses `rcedit` (app-builder binary) to modify the Windows PE executable. On Linux without Wine, NSIS and rcedit steps fail with `ERR_ELECTRON_BUILDER_CANNOT_EXECUTE`.
 
-electron-builder v25.x uses `rcedit` (via `app-builder` binary) to modify the Windows PE executable (change icon, product name, PE resources). On Linux without Wine, this step fails with `ERR_ELECTRON_BUILDER_CANNOT_EXECUTE`.
+**Fix for ZIP target:** Set `"signAndEditExecutable": false` in `win` config. This skips rcedit (icon won't be updated), allows ZIP build to succeed.
 
-**Fix:** Set `"signAndEditExecutable": false` in the `win` section of `package.json` build config. This skips rcedit and allows the build to complete.
+**Fix for NSIS installer:** Use the Linux `makensis` binary cached by electron-builder at:
+`.cache/electron-builder/nsis/nsis-3.0.4.1/linux/makensis`
 
-**Side-effect:** The .exe keeps the default Electron icon (no custom icon embedded). App name in Windows title bar uses the productName from `package.json`, not PE resources. ASAR integrity is still embedded via `resedit` (pure Node.js, no Wine needed).
+Compile `artifacts/desktop-wb/installer.nsi` directly:
+```bash
+"$NSIS_DIR/linux/makensis" -V3 installer.nsi
+```
 
-**Also set:** `CSC_IDENTITY_AUTO_DISCOVERY=false` env var when running electron-builder to suppress code-signing prompts.
+This produces `dist-electron/ADUnitR-Setup-win-x64.exe` (~90MB, LZMA-compressed, includes win-unpacked content).
+
+**Also set:** `CSC_IDENTITY_AUTO_DISCOVERY=false` env var for electron-builder to suppress code-signing.
 
 ## Desktop build flow
 
-1. `node build.mjs --dist-win` from `artifacts/desktop-wb/`
-2. Steps: build frontend (BASE_PATH=/) → build api-server → assemble server-assets → copy pglite → run electron-builder → copy ZIP to `artifacts/wb-optimizer/public/downloads/`
-3. Output: `dist-electron/AD Unit R-1.0.0-win.zip` (~110MB)
-4. Accessible in web UI at `/wb/downloads/ADUnitR-win-x64.zip`
+`node build.mjs --dist-win` from `artifacts/desktop-wb/`:
+1. Build frontend (BASE_PATH=/)
+2. Build api-server
+3. Assemble server-assets (use `{ dereference: true }` in cpSync for pglite!)
+4. Run electron-builder (ZIP only, signAndEditExecutable:false)
+5. Compile NSIS installer with Linux makensis (installer.nsi)
+6. Copy ZIP + EXE to `artifacts/wb-optimizer/public/downloads/`
 
-## PGlite location search order (build.mjs)
+Outputs:
+- `ADUnitR-win-x64.zip` (~110MB) → `/wb/downloads/ADUnitR-win-x64.zip`
+- `ADUnitR-Setup-win-x64.exe` (~90MB) → `/wb/downloads/ADUnitR-Setup-win-x64.exe`
 
-Checks these paths in order for `@electric-sql` directory:
-1. `{root}/node_modules/@electric-sql`
-2. `{root}/lib/db/node_modules/@electric-sql`
-3. `{root}/artifacts/api-server/node_modules/@electric-sql` ← currently resolves here
+## PGlite copy fix
+
+`cpSync` copies pnpm symlinks as symlinks (4KB), NOT the actual 23MB pglite package. Must use `{ dereference: true }`:
+```js
+cpSync(pgliteSrcDir, electricDir, { recursive: true, dereference: true });
+```
+
+## NSIS packages search
+
+nsis is a NSIS Packages directory located at:
+`.cache/electron-builder/nsis/nsis-resources-3.4.1/plugins/`
+
+Subdirs: `x64-ansi`, `x64-unicode`, `x86-ansi`, `x86-unicode`

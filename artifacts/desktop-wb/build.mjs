@@ -86,7 +86,7 @@ if (!pgliteSrcDir) {
 
 const electricDir = join(nodeModulesDir, '@electric-sql');
 mkdirSync(electricDir, { recursive: true });
-cpSync(pgliteSrcDir, electricDir, { recursive: true });
+cpSync(pgliteSrcDir, electricDir, { recursive: true, dereference: true });
 
 console.log('\n✅ server-assets assembled successfully.');
 console.log('   API bundle:     server-assets/index.mjs');
@@ -104,15 +104,37 @@ if (buildDist) {
   });
   console.log('\n✅ ZIP created in artifacts/desktop-wb/dist-electron/');
 
-  // ── 6. Copy ZIP to wb-optimizer public/downloads/ ──────────
-  console.log('\n[6/6] Copying ZIP to wb-optimizer public/downloads/…');
+  // ── 6. Build NSIS installer with Linux makensis ────────────
+  console.log('\n[6/7] Building NSIS installer (.exe)…');
+  const nsisDir = join(workspaceRoot, '.cache', 'electron-builder', 'nsis', 'nsis-3.0.4.1');
+  const makensis = join(nsisDir, 'linux', 'makensis');
+  const nsisScript = join(__dirname, 'installer.nsi');
+  if (existsSync(makensis) && existsSync(nsisScript)) {
+    execSync(`"${makensis}" -V3 installer.nsi`, {
+      cwd: __dirname,
+      stdio: 'inherit',
+    });
+    console.log('   ✅ NSIS installer built.');
+  } else {
+    console.warn('   ⚠ makensis or installer.nsi not found — skipping NSIS step.');
+  }
+
+  // ── 7. Copy ZIP + EXE to wb-optimizer public/downloads/ ────
+  console.log('\n[7/7] Copying artifacts to wb-optimizer public/downloads/…');
   const { readdirSync } = await import('fs');
   const distDir = join(__dirname, 'dist-electron');
-  const zips = readdirSync(distDir).filter(f => f.endsWith('.zip'));
-  if (zips.length === 0) throw new Error('No ZIP file found in dist-electron/');
-  const srcZip = join(distDir, zips[0]);
   const destDir = join(workspaceRoot, 'artifacts', 'wb-optimizer', 'public', 'downloads');
   mkdirSync(destDir, { recursive: true });
-  cpSync(srcZip, join(destDir, 'ADUnitR-win-x64.zip'));
-  console.log(`   Copied: ${zips[0]} → wb-optimizer/public/downloads/ADUnitR-win-x64.zip`);
+
+  const zips = readdirSync(distDir).filter(f => f.endsWith('.zip'));
+  if (zips.length > 0) {
+    cpSync(join(distDir, zips[0]), join(destDir, 'ADUnitR-win-x64.zip'));
+    console.log(`   Copied: ${zips[0]} → public/downloads/ADUnitR-win-x64.zip`);
+  }
+
+  const exe = join(distDir, 'ADUnitR-Setup-win-x64.exe');
+  if (existsSync(exe)) {
+    cpSync(exe, join(destDir, 'ADUnitR-Setup-win-x64.exe'));
+    console.log('   Copied: ADUnitR-Setup-win-x64.exe → public/downloads/');
+  }
 }

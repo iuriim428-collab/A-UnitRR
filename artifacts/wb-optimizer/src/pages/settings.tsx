@@ -293,18 +293,24 @@ export default function Settings() {
               Автономное приложение — работает без интернета, данные хранятся локально.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-4">
-              <a href="/wb/downloads/ADUnitR-win-x64.zip" download>
-                <Button variant="outline" className="gap-2 border-blue-300 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900">
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <a href="/wb/downloads/ADUnitR-Setup-win-x64.exe" download>
+                <Button className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
                   <Download className="h-4 w-4" />
-                  Скачать ZIP (Windows x64, ~110 МБ)
+                  Скачать установщик .exe (~90 МБ)
                 </Button>
               </a>
-              <p className="text-xs text-muted-foreground">
-                Распакуйте ZIP и запустите <code className="font-mono bg-muted px-1 rounded">AD Unit R.exe</code>
-              </p>
+              <a href="/wb/downloads/ADUnitR-win-x64.zip" download>
+                <Button variant="outline" className="gap-2 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950">
+                  <Download className="h-4 w-4" />
+                  Портативный ZIP (~110 МБ)
+                </Button>
+              </a>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Windows x64 · Установщик создаёт ярлык и добавляет запись в «Программы и компоненты»
+            </p>
           </CardContent>
         </Card>
       )}

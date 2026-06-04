@@ -18,6 +18,9 @@ win:
     - target: zip
       arch:
         - x64
+    - target: nsis
+      arch:
+        - x64
   icon: build-resources/icon.ico
   signingHashAlgorithms: null
   certificateFile: null

@@ -9,3 +9,5 @@ artifacts/ozon-unit-economics/public/UnitEconomics-win-x64-latest.zip filter=lfs
 artifacts/desktop-wb/dist-electron/AD[[:space:]]Unit[[:space:]]R-1.0.0-win.zip filter=lfs diff=lfs merge=lfs -text
 artifacts/desktop-wb/dist-electron/win-unpacked/AD[[:space:]]Unit[[:space:]]R.exe filter=lfs diff=lfs merge=lfs -text
 artifacts/wb-optimizer/public/downloads/ADUnitR-win-x64.zip filter=lfs diff=lfs merge=lfs -text
+artifacts/desktop-wb/dist-electron/ADUnitR-Setup-win-x64.exe filter=lfs diff=lfs merge=lfs -text
+artifacts/wb-optimizer/public/downloads/ADUnitR-Setup-win-x64.exe filter=lfs diff=lfs merge=lfs -text
