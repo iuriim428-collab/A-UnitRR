@@ -73,8 +73,16 @@ router.get("/wb/report", async (req, res) => {
         return;
       }
 
-      const page = await upstream.json().catch(() => []) as unknown[];
-      if (!Array.isArray(page) || page.length === 0) break;
+      const rawText = await upstream.text().catch(() => '');
+      req.log.info({ rrdid, bodyLen: rawText.length, bodyHead: rawText.slice(0, 200) }, 'wb page raw');
+      let page: unknown[];
+      try {
+        const parsed = JSON.parse(rawText) as unknown;
+        page = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        page = [];
+      }
+      if (page.length === 0) break;
 
       allRows.push(...page);
 
