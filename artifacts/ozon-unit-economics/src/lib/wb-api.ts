@@ -165,26 +165,21 @@ export async function fetchWBReport(
 ): Promise<{ rows: WBDetailRow[]; method: WBFetchMethod }> {
 
   // ── Strategy 1: Browser-direct (user's own IP, 5 s timeout) ────────────
-  // Skipped in Electron: Electron doesn't enforce CORS so the request goes
-  // through but WB may reject it differently than a server-side request.
-  // In desktop mode the local Express server (localhost) is already on the
-  // user's machine, so server-proxy is equivalent and more reliable.
+  // Always falls through on any error: WB may return 401/403 via CORS even
+  // with a valid token when the request comes from a cloud/proxy origin.
+  // The authoritative error comes from the server proxy (Strategy 3).
+  // Skipped in Electron: desktop runs a local server already.
   if (!isElectron()) {
     try {
       const rows = await fetchAllPagesFrom(
         WB_STAT_DIRECT,
         { Authorization: token },
         dateFrom, dateTo, onProgress,
-        5_000, // 5 s — if WB doesn't respond to CORS preflight, give up quickly
+        5_000, // 5 s — give up quickly if CORS preflight hangs
       );
       return { rows, method: 'browser' };
-    } catch (err) {
-      const isFallthrough = err instanceof TypeError ||
-        (err instanceof DOMException && err.name === 'AbortError') ||
-        (err instanceof DOMException && err.name === 'TimeoutError') ||
-        // 429 Rate limit from browser-direct — fall through to local/server proxy
-        (err instanceof Error && /WB 429/.test(err.message));
-      if (!isFallthrough) throw err; // Real WB error (401, 403…) → surface to user
+    } catch {
+      // Always fall through to local proxy / server proxy
     }
   }
 
