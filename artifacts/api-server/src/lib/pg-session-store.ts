@@ -1,14 +1,17 @@
 import session, { type SessionData } from "express-session";
-import type { Pool } from "pg";
 
 const { Store } = session;
 
+export interface Queryable {
+  query(text: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
+}
+
 export class PgSessionStore extends Store {
-  private pool: Pool;
+  private pool: Queryable;
   private tableName: string;
   private pruneInterval: NodeJS.Timeout | null = null;
 
-  constructor(pool: Pool, tableName = "user_sessions") {
+  constructor(pool: Queryable, tableName = "user_sessions") {
     super();
     this.pool = pool;
     this.tableName = tableName;
@@ -22,7 +25,8 @@ export class PgSessionStore extends Store {
         [sid],
       );
       if (res.rows.length === 0) return cb(null, null);
-      cb(null, res.rows[0].sess as SessionData);
+      const row = res.rows[0] as { sess: SessionData };
+      cb(null, row.sess);
     } catch (err) {
       cb(err);
     }

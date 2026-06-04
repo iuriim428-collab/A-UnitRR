@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
-import { Loader2, Save, Eye, EyeOff, Key, RefreshCw } from "lucide-react";
+import { Loader2, Save, Eye, EyeOff, Key, RefreshCw, Download, Monitor } from "lucide-react";
 
 interface ApiSettings {
   wb?: {
@@ -280,6 +280,34 @@ export default function Settings() {
           Сохранить все ключи
         </Button>
       </div>
+
+      {/* Desktop download — only shown in web (browser) mode */}
+      {!(typeof window !== 'undefined' && 'electronApp' in window) && (
+        <Card className="border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Monitor className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              Десктоп-версия для Windows
+            </CardTitle>
+            <CardDescription>
+              Автономное приложение — работает без интернета, данные хранятся локально.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-4">
+              <a href="/wb/downloads/ADUnitR-win-x64.zip" download>
+                <Button variant="outline" className="gap-2 border-blue-300 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900">
+                  <Download className="h-4 w-4" />
+                  Скачать ZIP (Windows x64, ~110 МБ)
+                </Button>
+              </a>
+              <p className="text-xs text-muted-foreground">
+                Распакуйте ZIP и запустите <code className="font-mono bg-muted px-1 rounded">AD Unit R.exe</code>
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
