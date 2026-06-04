@@ -1,7 +1,7 @@
 import { Router } from "express";
 import * as https from "node:https";
 import * as dns from "node:dns";
-import { getWbToken, getOzonHeaders, getYmToken, getYmCampaignIds } from "../../lib/settings.js";
+import { getWbStatToken, getOzonHeaders, getYmToken, getYmCampaignIds } from "../../lib/settings.js";
 
 const router = Router();
 
@@ -80,7 +80,7 @@ async function fetchWbOrders(from: string, to: string) {
   const toMs = new Date(to + "T23:59:59Z").getTime();
   const fromMs = new Date(from).getTime();
 
-  const wbHeaders = { Authorization: await getWbToken() };
+  const wbHeaders = { Authorization: await getWbStatToken() };
   const data = await httpsGet(
     "statistics-api.wildberries.ru",
     `/api/v1/supplier/orders?dateFrom=${from}&flag=0`,

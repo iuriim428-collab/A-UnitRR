@@ -77,12 +77,34 @@ function RowDetail({ row, stocks }: { row: any; stocks: any[] }) {
   );
 }
 
+function thisMonthRange(): [string, string] {
+  const now = new Date();
+  const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const to = today();
+  return [from, to];
+}
+
+function lastMonthRange(): [string, string] {
+  const now = new Date();
+  const y = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+  const m = now.getMonth() === 0 ? 12 : now.getMonth();
+  const lastDay = new Date(y, m, 0).getDate();
+  const from = `${y}-${String(m).padStart(2, "0")}-01`;
+  const to = `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  return [from, to];
+}
+
 export default function WbLive() {
   const [from, setFrom] = useState(daysAgo(30));
   const [to, setTo] = useState(today());
   const [appliedFrom, setAppliedFrom] = useState(daysAgo(30));
   const [appliedTo, setAppliedTo] = useState(today());
   const [openNm, setOpenNm] = useState<number | null>(null);
+
+  const applyRange = (f: string, t: string) => {
+    setFrom(f); setTo(t);
+    setAppliedFrom(f); setAppliedTo(t);
+  };
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["wb-live-products", appliedFrom, appliedTo],
@@ -106,7 +128,7 @@ export default function WbLive() {
   const rows: any[] = data?.rows ?? [];
   const totals = data?.totals;
   const stocks: any[] = stockData?.stocks ?? [];
-  const errorMsg = isError ? (data as any)?.error ?? "Ошибка загрузки данных" : null;
+  const rawOrderCount: number | undefined = data?.rawOrderCount;
 
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-6">
@@ -118,13 +140,26 @@ export default function WbLive() {
           </div>
           <p className="text-muted-foreground mt-1">Заказы и продажи напрямую из Statistics API</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-36 text-sm" />
-          <span className="text-muted-foreground">—</span>
-          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-36 text-sm" />
-          <Button onClick={apply} disabled={isLoading} className="bg-[#cb11ab] hover:bg-[#a50d8e]">
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Обновить"}
-          </Button>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-1.5">
+            <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => applyRange(...thisMonthRange())}>
+              Этот месяц
+            </Button>
+            <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => applyRange(...lastMonthRange())}>
+              Прошлый месяц
+            </Button>
+            <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => applyRange(daysAgo(30), today())}>
+              30 дней
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-36 text-sm" />
+            <span className="text-muted-foreground">—</span>
+            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-36 text-sm" />
+            <Button onClick={apply} disabled={isLoading} className="bg-[#cb11ab] hover:bg-[#a50d8e]">
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Обновить"}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -141,6 +176,18 @@ export default function WbLive() {
           {(data as any)?.error ?? "Не удалось загрузить данные."}
           {" "}
           <a href="/settings" className="underline font-medium">Проверьте настройки API</a>
+        </div>
+      )}
+
+      {!isLoading && !isError && rows.length === 0 && rawOrderCount === 0 && (
+        <div className="rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+          WB Statistics API не вернул заказов за этот период. Данные статистики обновляются с задержкой 1–2 дня — попробуйте выбрать период на 2 дня раньше, или используйте кнопку <strong>«Прошлый месяц»</strong>.
+        </div>
+      )}
+
+      {!isLoading && !isError && rows.length === 0 && rawOrderCount != null && rawOrderCount > 0 && (
+        <div className="rounded-lg border bg-amber-50 border-amber-200 px-4 py-3 text-sm text-amber-800">
+          API вернул {rawOrderCount} заказов, но ни один не попал в выбранный период ({appliedFrom} — {appliedTo}). Попробуйте расширить диапазон дат.
         </div>
       )}
 

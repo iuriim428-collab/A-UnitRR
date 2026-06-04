@@ -28,9 +28,16 @@ export function invalidateSettingsCache() {
   cache = null;
 }
 
+/** Main WB token (for content/seller API) */
 export async function getWbToken(): Promise<string> {
   const s = await getSettings();
   return s.wb?.token ?? process.env.WB_API_KEY ?? "";
+}
+
+/** WB Statistics API token — falls back to main token if analyticsToken not set */
+export async function getWbStatToken(): Promise<string> {
+  const s = await getSettings();
+  return s.wb?.analyticsToken || s.wb?.token || process.env.WB_API_KEY || "";
 }
 
 export async function getOzonHeaders(): Promise<{ "Client-Id": string; "Api-Key": string }> {

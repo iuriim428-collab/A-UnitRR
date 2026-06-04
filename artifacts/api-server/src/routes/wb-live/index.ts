@@ -1,11 +1,11 @@
 import { Router } from "express";
-import { getWbToken } from "../../lib/settings.js";
+import { getWbToken, getWbStatToken } from "../../lib/settings.js";
 
 const router = Router();
 const STAT_BASE = "https://statistics-api.wildberries.ru";
 
 async function wbHeaders() {
-  return { Authorization: await getWbToken() };
+  return { Authorization: await getWbStatToken() };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -36,7 +36,7 @@ function filterByDate(rows: any[], dateField: string, from: string, to: string) 
 
 // GET /api/wb-live/products?from=2026-05-01&to=2026-05-30
 router.get("/wb-live/products", async (req, res) => {
-  const token = await getWbToken();
+  const token = await getWbStatToken();
   if (!token) {
     res.status(400).json({ error: "WB токен не настроен. Перейдите в Настройки и введите API-ключ WB Statistics." });
     return;
@@ -146,12 +146,12 @@ router.get("/wb-live/products", async (req, res) => {
     forPay: Math.round(rows.reduce((s, r) => s + r.forPay, 0) * 100) / 100,
   };
 
-  res.json({ from, to, rows, totals });
+  res.json({ from, to, rows, totals, rawOrderCount: allOrders.length, rawSalesCount: allSales.length });
 });
 
 // GET /api/wb-live/stocks
 router.get("/wb-live/stocks", async (_req, res) => {
-  const token = await getWbToken();
+  const token = await getWbStatToken();
   if (!token) { res.json({ stocks: [] }); return; }
 
   const yesterday = isoDate(new Date(Date.now() - 86400000));
