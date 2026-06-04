@@ -73,7 +73,7 @@ router.get("/wb/report", async (req, res) => {
         return;
       }
 
-      const page = (await upstream.json()) as unknown[];
+      const page = await upstream.json().catch(() => []) as unknown[];
       if (!Array.isArray(page) || page.length === 0) break;
 
       allRows.push(...page);
