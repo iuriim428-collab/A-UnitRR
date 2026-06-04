@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as https from "node:https";
 import * as dns from "node:dns";
+import { getWbToken, getOzonHeaders, getYmToken, getYmCampaignIds } from "../../lib/settings.js";
 
 const router = Router();
 
@@ -79,7 +80,7 @@ async function fetchWbOrders(from: string, to: string) {
   const toMs = new Date(to + "T23:59:59Z").getTime();
   const fromMs = new Date(from).getTime();
 
-  const wbHeaders = { Authorization: process.env.WB_API_KEY ?? "" };
+  const wbHeaders = { Authorization: await getWbToken() };
   const data = await httpsGet(
     "statistics-api.wildberries.ru",
     `/api/v1/supplier/orders?dateFrom=${from}&flag=0`,
@@ -111,8 +112,7 @@ async function fetchWbOrders(from: string, to: string) {
 
 async function fetchOzonOrders(from: string, to: string) {
   const ozonHeaders = {
-    "Client-Id": process.env.OZON_CLIENT_ID ?? "",
-    "Api-Key": process.env.OZON_API_KEY ?? "",
+    ...(await getOzonHeaders()),
     "Content-Type": "application/json",
   };
 
@@ -162,7 +162,7 @@ async function fetchYmCampaignOrders(campaignId: string, from: string, to: strin
   const data = await httpsGet(
     "api.partner.market.yandex.ru",
     `/v2/campaigns/${campaignId}/orders?${params}`,
-    { "Api-Key": process.env.YM_OAUTH_TOKEN ?? "", "Content-Type": "application/json" },
+    { "Api-Key": await getYmToken(), "Content-Type": "application/json" },
     ymAgent
   );
 
@@ -183,8 +183,7 @@ async function fetchYmCampaignOrders(campaignId: string, from: string, to: strin
 }
 
 async function fetchYmOrders(from: string, to: string) {
-  const FBY = process.env.YM_FBY_CAMPAIGN_ID ?? "149095778";
-  const FBS = process.env.YM_FBS_CAMPAIGN_ID ?? "149103486";
+  const [FBY, FBS] = await getYmCampaignIds();
   const [fby, fbs] = await Promise.all([
     fetchYmCampaignOrders(FBY, from, to, "fby").catch(() => []),
     fetchYmCampaignOrders(FBS, from, to, "fbs").catch(() => []),

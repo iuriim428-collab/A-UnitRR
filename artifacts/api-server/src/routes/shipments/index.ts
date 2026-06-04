@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import * as https from "node:https";
 import * as dns from "node:dns";
+import { getWbToken, getOzonHeaders, getYmToken, getYmCampaignIds } from "../../lib/settings.js";
 
 const router = Router();
 
@@ -73,30 +74,30 @@ function httpsBinary(
 
 const WB_MKT = "marketplace-api.wildberries.ru";
 
-function wbH() {
-  return { Authorization: process.env.WB_API_KEY ?? "", "Content-Type": "application/json" };
+async function wbH() {
+  return { Authorization: await getWbToken(), "Content-Type": "application/json" };
 }
 
 async function wbGet(path: string) {
-  const r = await httpsJson("GET", WB_MKT, path, wbH());
+  const r = await httpsJson("GET", WB_MKT, path, await wbH());
   if (r.status >= 400) throw new Error(`WB ${path} → ${r.status}: ${JSON.stringify(r.data)}`);
   return r.data;
 }
 
 async function wbPost(path: string, body: object = {}) {
-  const r = await httpsJson("POST", WB_MKT, path, wbH(), JSON.stringify(body));
+  const r = await httpsJson("POST", WB_MKT, path, await wbH(), JSON.stringify(body));
   if (r.status >= 400) throw new Error(`WB POST ${path} → ${r.status}: ${JSON.stringify(r.data)}`);
   return r.data;
 }
 
 async function wbPut(path: string, body: object = {}) {
-  const r = await httpsJson("PUT", WB_MKT, path, wbH(), JSON.stringify(body));
+  const r = await httpsJson("PUT", WB_MKT, path, await wbH(), JSON.stringify(body));
   if (r.status >= 400) throw new Error(`WB PUT ${path} → ${r.status}: ${JSON.stringify(r.data)}`);
   return r.data;
 }
 
 async function wbDelete(path: string) {
-  const r = await httpsJson("DELETE", WB_MKT, path, wbH());
+  const r = await httpsJson("DELETE", WB_MKT, path, await wbH());
   if (r.status >= 400) throw new Error(`WB DELETE ${path} → ${r.status}: ${JSON.stringify(r.data)}`);
   return r.data;
 }
@@ -171,7 +172,7 @@ router.post("/shipments/wb/supplies/:supplyId/deliver", async (req: Request, res
 router.get("/shipments/wb/supplies/:supplyId/barcode", async (req: Request, res: Response) => {
   const { supplyId } = req.params;
   const type = (req.query.type as string) || "png";
-  const h = { Authorization: process.env.WB_API_KEY ?? "" };
+  const h = { Authorization: await getWbToken() };
   const r = await httpsBinary("GET", WB_MKT, `/api/v3/supplies/${supplyId}/barcode?type=${type}`, h);
   if (r.status >= 400) { res.status(r.status).json({ error: "barcode fetch failed" }); return; }
   res.setHeader("Content-Type", r.contentType || (type === "svg" ? "image/svg+xml" : "image/png"));
@@ -183,16 +184,15 @@ router.get("/shipments/wb/supplies/:supplyId/barcode", async (req: Request, res:
 
 const OZON_BASE = "api-seller.ozon.ru";
 
-function ozonH() {
+async function ozonH() {
   return {
-    "Client-Id": process.env.OZON_CLIENT_ID ?? "",
-    "Api-Key": process.env.OZON_API_KEY ?? "",
+    ...(await getOzonHeaders()),
     "Content-Type": "application/json",
   };
 }
 
 async function ozonPost(path: string, body: object) {
-  const r = await httpsJson("POST", OZON_BASE, path, ozonH(), JSON.stringify(body));
+  const r = await httpsJson("POST", OZON_BASE, path, await ozonH(), JSON.stringify(body));
   if (r.status >= 400) throw new Error(`Ozon ${path} → ${r.status}: ${JSON.stringify(r.data)}`);
   return r.data;
 }
@@ -263,8 +263,7 @@ router.get("/shipments/ozon/fbs/:postingNumber/label", async (req: Request, res:
   const { postingNumber } = req.params;
   // Ozon label endpoint returns PDF binary
   const h = {
-    "Client-Id": process.env.OZON_CLIENT_ID ?? "",
-    "Api-Key": process.env.OZON_API_KEY ?? "",
+    ...(await getOzonHeaders()),
     "Content-Type": "application/json",
   };
   const bodyBuf = Buffer.from(JSON.stringify({ posting_number: [postingNumber] }));
@@ -308,19 +307,18 @@ router.get("/shipments/ozon/fbs/:postingNumber/label", async (req: Request, res:
 
 const YM_HOST = "api.partner.market.yandex.ru";
 
-function ymH() {
-  return { "Api-Key": process.env.YM_OAUTH_TOKEN ?? "", "Content-Type": "application/json" };
+async function ymH() {
+  return { "Api-Key": await getYmToken(), "Content-Type": "application/json" };
 }
 
 async function ymReq(method: string, path: string, body?: object) {
   const bodyStr = body ? JSON.stringify(body) : undefined;
-  const r = await httpsJson(method, YM_HOST, path, ymH(), bodyStr, ymAgent);
+  const r = await httpsJson(method, YM_HOST, path, await ymH(), bodyStr, ymAgent);
   if (r.status >= 400) throw new Error(`YM ${method} ${path} → ${r.status}: ${JSON.stringify(r.data)}`);
   return r.data;
 }
 
-const FBS_CAMPAIGN = process.env.YM_FBS_CAMPAIGN_ID ?? "149103486";
-const FBY_CAMPAIGN = process.env.YM_FBY_CAMPAIGN_ID ?? "149095778";
+// FBY/FBS campaign IDs loaded dynamically from settings (see getYmCampaignIds())
 
 const YM_STATUS_LABELS: Record<string, string> = {
   PROCESSING: "Обрабатывается",
@@ -338,6 +336,7 @@ const YM_STATUS_LABELS: Record<string, string> = {
 router.get("/shipments/ym/pending", async (_req: Request, res: Response) => {
   const allOrders: any[] = [];
   const statuses = ["PROCESSING", "READY_TO_SHIP", "SHIPPED"];
+  const [FBY_CAMPAIGN, FBS_CAMPAIGN] = await getYmCampaignIds();
 
   for (const status of statuses) {
     for (const [campaignId, type] of [[FBS_CAMPAIGN, "FBS"], [FBY_CAMPAIGN, "FBY"]] as const) {
@@ -379,6 +378,7 @@ router.get("/shipments/ym/pending", async (_req: Request, res: Response) => {
 router.post("/shipments/ym/fbs/:orderId/confirm", async (req: Request, res: Response) => {
   const { orderId } = req.params;
   // Move order to PROCESSING → READY_TO_SHIP substatus
+  const [, FBS_CAMPAIGN] = await getYmCampaignIds();
   const data = await ymReq("PUT", `/v2/campaigns/${FBS_CAMPAIGN}/orders/${orderId}/status`, {
     order: { status: "PROCESSING", substatus: "READY_TO_SHIP" },
   });
@@ -388,7 +388,8 @@ router.post("/shipments/ym/fbs/:orderId/confirm", async (req: Request, res: Resp
 // GET /api/shipments/ym/fbs/:orderId/label — download shipment labels (PDF)
 router.get("/shipments/ym/fbs/:orderId/label", async (req: Request, res: Response) => {
   const { orderId } = req.params;
-  const h = { ...ymH(), Host: YM_HOST };
+  const [, FBS_CAMPAIGN] = await getYmCampaignIds();
+  const h = { ...(await ymH()), Host: YM_HOST };
   const r = await httpsBinary("GET", YM_HOST, `/v2/campaigns/${FBS_CAMPAIGN}/orders/${orderId}/delivery/labels`, h, ymAgent);
   if (r.status >= 400) { res.status(r.status).json({ error: "label fetch failed" }); return; }
   res.setHeader("Content-Type", r.contentType || "application/pdf");

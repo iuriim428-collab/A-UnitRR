@@ -1,16 +1,17 @@
 import { Router } from "express";
+import { getWbToken } from "../../lib/settings.js";
 
 const router = Router();
 const STAT_BASE = "https://statistics-api.wildberries.ru";
 
-function wbHeaders() {
-  return { Authorization: process.env.WB_API_KEY ?? "" };
+async function wbHeaders() {
+  return { Authorization: await getWbToken() };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function wbGet<T = any>(path: string, attempt = 0): Promise<T> {
-  const res = await fetch(`${STAT_BASE}${path}`, { headers: wbHeaders() });
+  const res = await fetch(`${STAT_BASE}${path}`, { headers: await wbHeaders() });
   if (res.status === 429) {
     if (attempt >= 3) throw new Error(`WB API rate limit exceeded for ${path}`);
     await sleep(3000 * (attempt + 1));

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as https from "node:https";
 import * as dns from "node:dns";
+import { getWbToken, getOzonHeaders, getYmToken } from "../../lib/settings.js";
 
 const router = Router();
 
@@ -76,7 +77,7 @@ async function fetchWbStocks(attempt = 0): Promise<any[]> {
   const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
   const res = await fetch(
     `https://statistics-api.wildberries.ru/api/v1/supplier/stocks?dateFrom=${yesterday}`,
-    { headers: { Authorization: process.env.WB_API_KEY ?? "" } }
+    { headers: { Authorization: await getWbToken() } }
   );
   if (res.status === 429) {
     if (attempt >= 3) return [];
@@ -84,7 +85,7 @@ async function fetchWbStocks(attempt = 0): Promise<any[]> {
     return fetchWbStocks(attempt + 1);
   }
   if (!res.ok) return [];
-  const data: any[] = await res.json();
+  const data: any[] = (await res.json()) as any[];
 
   const byNm = new Map<
     number,
@@ -108,8 +109,7 @@ async function fetchWbStocks(attempt = 0): Promise<any[]> {
 
 async function fetchOzonStocks(): Promise<any[]> {
   const ozonHeaders = {
-    "Client-Id": process.env.OZON_CLIENT_ID ?? "",
-    "Api-Key": process.env.OZON_API_KEY ?? "",
+    ...(await getOzonHeaders()),
     "Content-Type": "application/json",
   };
 
@@ -153,7 +153,7 @@ const YM_FBY_CAMPAIGN = "149095778";
 
 async function fetchYmStocks(): Promise<{ stocks: any[]; warehouseNames: Record<string, string> }> {
   const ymHeaders = {
-    "Api-Key": process.env.YM_OAUTH_TOKEN ?? "",
+    "Api-Key": await getYmToken(),
     "Content-Type": "application/json",
   };
 

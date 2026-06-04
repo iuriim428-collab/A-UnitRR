@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { getSettings, getOzonHeaders } from "../../lib/settings.js";
 import { db } from "@workspace/db";
 import {
   ozonSalesRowsTable, ozonSalesReportsTable,
@@ -22,8 +23,8 @@ async function getPerfToken(): Promise<string> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      client_id: process.env.OZON_PERF_CLIENT_ID,
-      client_secret: process.env.OZON_PERF_CLIENT_SECRET,
+      client_id: process.env.OZON_PERF_CLIENT_ID ?? (await getSettings()).ozon?.perfClientId,
+      client_secret: process.env.OZON_PERF_CLIENT_SECRET ?? (await getSettings()).ozon?.perfClientSecret,
       grant_type: "client_credentials",
     }),
   });
@@ -42,10 +43,9 @@ async function perfGet<T = any>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function headers() {
+async function headers() {
   return {
-    "Client-Id": process.env.OZON_CLIENT_ID ?? "",
-    "Api-Key": process.env.OZON_API_KEY ?? "",
+    ...(await getOzonHeaders()),
     "Content-Type": "application/json",
   };
 }
@@ -53,7 +53,7 @@ function headers() {
 async function ozonPost<T = any>(path: string, body: object): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: headers(),
+    headers: await headers(),
     body: JSON.stringify(body),
   });
   if (!res.ok) {

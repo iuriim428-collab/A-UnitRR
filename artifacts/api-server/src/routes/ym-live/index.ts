@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as https from "node:https";
 import * as dns from "node:dns";
+import { getYmToken, getYmCampaignIds } from "../../lib/settings.js";
 
 // Force IPv4: api.partner.market.yandex.ru has IPv6 that times out from Replit
 function lookup4(
@@ -15,17 +16,12 @@ const ymAgent = new https.Agent({ lookup: lookup4 as any });
 const router = Router();
 const YM_HOST = "api.partner.market.yandex.ru";
 
-function ymHeaders() {
-  return {
-    "Api-Key": process.env.YM_OAUTH_TOKEN ?? "",
-    "Content-Type": "application/json",
-  };
-}
-
-function httpsRequest(method: string, path: string, body?: string): Promise<any> {
+async function httpsRequest(method: string, path: string, body?: string): Promise<any> {
+  const ymToken = await getYmToken();
   return new Promise((resolve, reject) => {
     const headers: Record<string, string> = {
-      ...ymHeaders(),
+      "Api-Key": ymToken,
+      "Content-Type": "application/json",
       Host: YM_HOST,
     };
     if (body) headers["Content-Length"] = String(Buffer.byteLength(body));
@@ -63,8 +59,7 @@ async function ymPost<T = any>(path: string, body: object): Promise<T> {
 
 // Business ID discovered via API (secret YM_BUSINESS_ID has wrong campaign ID)
 const BUSINESS_ID = "216799890";
-const FBY_CAMPAIGN = process.env.YM_FBY_CAMPAIGN_ID ?? "149095778";
-const FBS_CAMPAIGN = process.env.YM_FBS_CAMPAIGN_ID ?? "149103486";
+// Campaign IDs loaded dynamically via getYmCampaignIds()
 
 // Fetch all offer mappings (products)
 async function fetchOffers(): Promise<Map<string, { name: string; category: string }>> {
@@ -116,6 +111,7 @@ router.get("/ym-live/products", async (req, res) => {
   const to = (req.query.to as string) ?? new Date().toISOString().slice(0, 10);
   const from = (req.query.from as string) ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
 
+  const [FBY_CAMPAIGN, FBS_CAMPAIGN] = await getYmCampaignIds();
   const [offers, fbyOrders, fbsOrders] = await Promise.all([
     fetchOffers(),
     fetchCampaignOrders(FBY_CAMPAIGN, from, to),

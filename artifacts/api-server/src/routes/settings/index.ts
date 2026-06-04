@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { invalidateSettingsCache } from "../../lib/settings.js";
 
 const router: IRouter = Router();
 
@@ -25,6 +26,7 @@ router.put("/settings", async (req, res) => {
     await db.execute(
       sql`UPDATE api_settings SET settings = ${JSON.stringify(incoming)}::jsonb, updated_at = NOW()`
     );
+    invalidateSettingsCache();
     req.log.info("settings updated");
     res.json({ ok: true });
   } catch (err) {

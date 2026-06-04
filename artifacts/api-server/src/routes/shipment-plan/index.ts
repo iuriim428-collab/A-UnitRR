@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as https from "node:https";
 import * as dns from "node:dns";
+import { getWbToken, getOzonHeaders, getYmToken, getYmCampaignIds } from "../../lib/settings.js";
 
 const router = Router();
 
@@ -65,11 +66,11 @@ async function getWbStocks(): Promise<Map<string, { total: number; name: string;
   for (let attempt = 0; attempt < 4; attempt++) {
     const res = await fetch(
       `https://statistics-api.wildberries.ru/api/v1/supplier/stocks?dateFrom=${yesterday}`,
-      { headers: { Authorization: process.env.WB_API_KEY ?? "" } }
+      { headers: { Authorization: await getWbToken() } }
     );
     if (res.status === 429) { await sleep(3000 * (attempt + 1)); continue; }
     if (!res.ok) break;
-    data = await res.json();
+    data = (await res.json()) as any[];
     break;
   }
   const map = new Map<string, { total: number; name: string; warehouses: Record<string, number> }>();
@@ -86,8 +87,7 @@ async function getWbStocks(): Promise<Map<string, { total: number; name: string;
 
 async function getOzonStocks(): Promise<Map<string, { total: number; name: string; warehouses: Record<string, number> }>> {
   const headers = {
-    "Client-Id": process.env.OZON_CLIENT_ID ?? "",
-    "Api-Key": process.env.OZON_API_KEY ?? "",
+    ...(await getOzonHeaders()),
     "Content-Type": "application/json",
   };
   let all: any[] = [];
@@ -114,7 +114,7 @@ async function getOzonStocks(): Promise<Map<string, { total: number; name: strin
 }
 
 async function getYmStocks(): Promise<Map<string, { total: number; name: string; warehouses: Record<string, number> }>> {
-  const headers = { "Api-Key": process.env.YM_OAUTH_TOKEN ?? "", "Content-Type": "application/json" };
+  const headers = { "Api-Key": await getYmToken(), "Content-Type": "application/json" };
   const offerIds: string[] = [];
   let pageToken: string | undefined;
   while (true) {
@@ -159,11 +159,11 @@ async function getWbSales(from: string, to: string): Promise<Map<string, number>
   for (let attempt = 0; attempt < 4; attempt++) {
     const res = await fetch(
       `https://statistics-api.wildberries.ru/api/v1/supplier/orders?dateFrom=${from}&flag=0`,
-      { headers: { Authorization: process.env.WB_API_KEY ?? "" } }
+      { headers: { Authorization: await getWbToken() } }
     );
     if (res.status === 429) { await sleep(3000 * (attempt + 1)); continue; }
     if (!res.ok) break;
-    data = await res.json();
+    data = (await res.json()) as any[];
     break;
   }
   const map = new Map<string, number>();
@@ -179,8 +179,7 @@ async function getWbSales(from: string, to: string): Promise<Map<string, number>
 
 async function getOzonSales(from: string, to: string): Promise<Map<string, number>> {
   const headers = {
-    "Client-Id": process.env.OZON_CLIENT_ID ?? "",
-    "Api-Key": process.env.OZON_API_KEY ?? "",
+    ...(await getOzonHeaders()),
     "Content-Type": "application/json",
   };
   const CANCELLED = new Set(["cancelled", "cancelled_waiting_for_approve"]);
@@ -206,10 +205,11 @@ async function getOzonSales(from: string, to: string): Promise<Map<string, numbe
 }
 
 async function getYmSales(from: string, to: string): Promise<Map<string, number>> {
-  const headers = { "Api-Key": process.env.YM_OAUTH_TOKEN ?? "", "Content-Type": "application/json" };
+  const headers = { "Api-Key": await getYmToken(), "Content-Type": "application/json" };
+  const [fby, fbs] = await getYmCampaignIds();
   const CAMPAIGNS = [
-    { id: "149095778" },
-    { id: "149103486" },
+    { id: fby },
+    { id: fbs },
   ];
   const map = new Map<string, number>();
   for (const camp of CAMPAIGNS) {
