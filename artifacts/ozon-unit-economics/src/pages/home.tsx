@@ -34,9 +34,9 @@ function computeAbcMap(rows: CalculatedRow[]): Map<string, AbcClass> {
 }
 
 const ABC_STYLE: Record<AbcClass, string> = {
-  A: 'bg-green-500/20 text-green-400 border border-green-500/30',
-  B: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30',
-  C: 'bg-red-500/20 text-red-400/80 border border-red-500/20',
+  A: 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200',
+  B: 'bg-amber-100 text-amber-700 ring-1 ring-amber-200',
+  C: 'bg-rose-100 text-rose-600 ring-1 ring-rose-200',
 };
 
 // ─── Tax options ──────────────────────────────────────────────────────────────
@@ -51,8 +51,8 @@ const TAX_OPTIONS: { label: string; type: TaxType; rate: number }[] = [
 function MetricRow({ label, value, accent, sub }: { label: string; value: string; accent?: boolean; sub?: boolean }) {
   return (
     <div className={`flex justify-between items-baseline gap-2 ${sub ? 'pl-3 text-[11px]' : 'text-xs'}`}>
-      <span className="text-muted-foreground truncate">{label}</span>
-      <span className={`tabular-nums whitespace-nowrap font-mono ${accent ? 'font-bold text-base' : 'font-medium'} ${value.startsWith('-') ? 'text-red-400' : accent ? 'text-green-400' : ''}`}>
+      <span className="text-slate-500 truncate">{label}</span>
+      <span className={`tabular-nums whitespace-nowrap font-mono ${accent ? 'font-bold text-base' : 'font-medium'} ${value.startsWith('-') ? 'text-rose-600' : accent ? 'text-emerald-600' : 'text-slate-700'}`}>
         {value}
       </span>
     </div>
@@ -61,7 +61,7 @@ function MetricRow({ label, value, accent, sub }: { label: string; value: string
 
 function SectionHdr({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10px] uppercase tracking-widest text-muted-foreground/50 mt-3 mb-1 border-b border-border/30 pb-0.5">
+    <div className="text-[10px] uppercase tracking-widest text-slate-400 mt-3 mb-1 border-b border-slate-200 pb-0.5 font-semibold">
       {children}
     </div>
   );
@@ -70,15 +70,15 @@ function SectionHdr({ children }: { children: React.ReactNode }) {
 // ─── Mode toggle ──────────────────────────────────────────────────────────────
 function ModeToggle({ mode, onChange }: { mode: 'files' | 'api'; onChange: (m: 'files' | 'api') => void }) {
   return (
-    <div className="flex border border-border text-[11px]">
+    <div className="flex rounded-xl border border-slate-200 text-[11px] overflow-hidden bg-slate-50">
       <button
         onClick={() => onChange('files')}
-        className={`flex items-center gap-1.5 px-3 py-1 transition-colors ${mode === 'files' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>
+        className={`flex items-center gap-1.5 px-3 py-1.5 transition-colors font-medium ${mode === 'files' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
         <Folder className="w-3 h-3" />Файлы
       </button>
       <button
         onClick={() => onChange('api')}
-        className={`flex items-center gap-1.5 px-3 py-1 border-l border-border transition-colors ${mode === 'api' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>
+        className={`flex items-center gap-1.5 px-3 py-1.5 border-l border-slate-200 transition-colors font-medium ${mode === 'api' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
         <Globe className="w-3 h-3" />API
       </button>
     </div>
@@ -101,7 +101,7 @@ function SummarySidebar({ s, hasCosts, adSpend, setAdSpend, perfTotal, promotion
   };
 
   return (
-    <aside className="flex-none w-52 bg-card border-r overflow-y-auto p-3 text-xs space-y-0.5">
+    <aside className="flex-none w-52 bg-white border-r border-slate-200 overflow-y-auto p-3 text-xs space-y-0.5 shadow-sm">
       <SectionHdr>Ключевые показатели</SectionHdr>
       <MetricRow label="Продажи, шт"   value={formatNumber(s.salesCount)} />
       <MetricRow label="Возвраты, шт"  value={s.returnsCount > 0 ? `-${formatNumber(s.returnsCount)}` : '—'} />
@@ -131,7 +131,7 @@ function SummarySidebar({ s, hasCosts, adSpend, setAdSpend, perfTotal, promotion
       <MetricRow label="Налог" value={s.taxAmount > 0 ? `-${formatCurrency(s.taxAmount)}` : '—'} />
 
       {/* Ad spend — editable total */}
-      <SectionHdr>Реклама {perfTotal !== undefined && perfTotal > 0 ? <span className="text-yellow-400/70 normal-case">· Performance API</span> : '(общие)'}</SectionHdr>
+      <SectionHdr>Реклама {perfTotal !== undefined && perfTotal > 0 ? <span className="text-amber-500 normal-case">· Performance API</span> : '(общие)'}</SectionHdr>
       <div className="flex items-center gap-1">
         <input
           type="number" min="0" step="any"
@@ -140,35 +140,35 @@ function SummarySidebar({ s, hasCosts, adSpend, setAdSpend, perfTotal, promotion
           onBlur={e => commitAd(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') { commitAd(adInput); (e.target as HTMLInputElement).blur(); } }}
           placeholder="0 ₽"
-          className="flex-1 bg-muted/30 border border-border px-2 py-1 text-[11px] tabular-nums font-mono outline-none focus:border-primary/60 placeholder:text-muted-foreground/30"
+          className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] tabular-nums font-mono outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200 placeholder:text-slate-300"
         />
-        <span className="text-muted-foreground text-[10px]">₽</span>
+        <span className="text-slate-400 text-[10px]">₽</span>
       </div>
       {adSpend > 0 && (
-        <div className="text-[10px] text-red-400/70 tabular-nums">
+        <div className="text-[10px] text-rose-500 tabular-nums">
           -{formatCurrency(adSpend)} из прибыли
         </div>
       )}
 
-      <div className="mt-3 pt-2 border-t border-border">
-        <div className="text-[10px] uppercase tracking-widest text-muted-foreground/50 mb-1">
+      <div className="mt-3 pt-2 border-t border-slate-200">
+        <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1">
           {adSpend > 0 ? 'Прибыль с рекламой' : 'Чистая прибыль'}
         </div>
-        <div className={`text-2xl font-bold tabular-nums ${adjProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+        <div className={`text-2xl font-bold tabular-nums ${adjProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
           {formatCurrency(adjProfit)}
         </div>
-        <div className={`text-xs mt-0.5 ${adjMargin >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
+        <div className={`text-xs mt-0.5 ${adjMargin >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
           Маржа {formatPercent(adjMargin)}
         </div>
         {adSpend > 0 && (
-          <div className="text-[10px] text-muted-foreground/50 mt-1">
+          <div className="text-[10px] text-slate-400 mt-1">
             До рекламы: {formatCurrency(s.netProfit)}
           </div>
         )}
       </div>
 
       {!hasCosts && (
-        <p className="text-[10px] text-yellow-400/70 border border-yellow-400/20 bg-yellow-400/5 px-2 py-1.5 mt-2">
+        <p className="text-[10px] text-amber-600 border border-amber-200 bg-amber-50 rounded-lg px-2 py-1.5 mt-2">
           Нажмите ячейку «Себест.» для ввода
         </p>
       )}
@@ -187,21 +187,21 @@ function CostEditor({ article, costPerUnit, vatRate, onChangeCost, onChangeVat, 
   const onKey  = (e: React.KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } if (e.key === 'Escape') onClose(); };
 
   return (
-    <div className="flex items-center gap-1 bg-card border border-primary/50 px-2 py-1 shadow-lg z-50 min-w-[220px]"
+    <div className="flex items-center gap-1 bg-white border border-indigo-300 rounded-xl px-2 py-1 shadow-md z-50 min-w-[220px]"
       onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) commit(); }}>
-      <span className="text-muted-foreground text-[10px] whitespace-nowrap">{article}</span>
-      <span className="text-border mx-1">|</span>
+      <span className="text-slate-400 text-[10px] whitespace-nowrap">{article}</span>
+      <span className="text-slate-200 mx-1">|</span>
       <input autoFocus type="number" min="0" step="any" value={lc} placeholder="0"
         onChange={e => setLc(e.target.value)} onKeyDown={onKey}
-        className="w-20 bg-transparent border-b border-primary outline-none text-right px-1 tabular-nums text-xs" />
-      <span className="text-muted-foreground text-[10px]">₽/шт</span>
-      <span className="text-border mx-1">|</span>
-      <span className="text-muted-foreground text-[10px]">НДС</span>
+        className="w-20 bg-transparent border-b border-indigo-400 outline-none text-right px-1 tabular-nums text-xs text-slate-800" />
+      <span className="text-slate-400 text-[10px]">₽/шт</span>
+      <span className="text-slate-200 mx-1">|</span>
+      <span className="text-slate-400 text-[10px]">НДС</span>
       <input type="number" min="0" max="20" step="any" value={lv} placeholder="0"
         onChange={e => setLv(e.target.value)} onKeyDown={onKey}
-        className="w-10 bg-transparent border-b border-primary/60 outline-none text-right px-1 tabular-nums text-xs" />
-      <span className="text-muted-foreground text-[10px]">%</span>
-      <button onMouseDown={e => { e.preventDefault(); commit(); }} className="ml-1 text-[10px] text-primary hover:text-primary/80 font-medium">✓</button>
+        className="w-10 bg-transparent border-b border-indigo-300 outline-none text-right px-1 tabular-nums text-xs text-slate-800" />
+      <span className="text-slate-400 text-[10px]">%</span>
+      <button onMouseDown={e => { e.preventDefault(); commit(); }} className="ml-1 text-[10px] text-indigo-600 hover:text-indigo-500 font-bold">✓</button>
     </div>
   );
 }
@@ -306,8 +306,8 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
   return (
     <>
       {/* ── Name filter bar ── */}
-      <div className="sticky top-0 z-20 bg-card border-b border-border/50 px-3 py-1.5 flex items-center gap-2">
-        <Search className="w-3.5 h-3.5 text-muted-foreground/50 flex-shrink-0" />
+      <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-3 py-1.5 flex items-center gap-2">
+        <Search className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
         <input
           type="text"
           value={nameFilter}
@@ -350,7 +350,7 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
             <Th sk="storage"          label="Хранение" />
             {hasDrrData && (
               <Th sk="drr" label={
-                <span className="text-yellow-400/80 flex items-center gap-1">
+                <span className="text-amber-500 flex items-center gap-1">
                   <Megaphone className="w-2.5 h-2.5" />ДРР%
                   {!hasPerfData && <span className="text-[9px] text-muted-foreground/50">(транз.)</span>}
                 </span>
@@ -358,9 +358,9 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
             )}
             {hasAnalytics && (
               <>
-                <Th sk="views"    label={<span className="text-sky-400/80 flex items-center gap-1"><Eye className="w-2.5 h-2.5" />Просм.</span>} />
-                <Th sk="cartPct"  label={<span className="text-sky-400/80">В корз.%</span>} />
-                <Th sk="buyoutPct" label={<span className="text-sky-400/80">Выкуп%</span>} />
+                <Th sk="views"    label={<span className="text-sky-600 flex items-center gap-1"><Eye className="w-2.5 h-2.5" />Просм.</span>} />
+                <Th sk="cartPct"  label={<span className="text-sky-600">В корз.%</span>} />
+                <Th sk="buyoutPct" label={<span className="text-sky-600">Выкуп%</span>} />
               </>
             )}
             <th className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">
@@ -369,7 +369,7 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
             <Th sk="taxAmount"    label="Налог" />
             <Th sk="netProfit"    label="Прибыль" />
             <Th sk="marginPercent" label="Маржа" />
-            <Th sk="costMargin"   label={<span className="text-emerald-400/80">М/закуп.</span>} title="Прибыль / Себестоимость × 100%" />
+            <Th sk="costMargin"   label={<span className="text-emerald-600">М/закуп.</span>} title="Прибыль / Себестоимость × 100%" />
             <Th sk="profitPerUnit" label="Приб./шт" />
           </tr>
         </thead>
@@ -384,7 +384,7 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
             const costMargin = row.costTotal > 0 ? (row.netProfit / row.costTotal) * 100 : null;
             const isSelected = selectedArticles?.has(row.article) ?? false;
             return (
-              <tr key={row.article} className={`border-b border-border/30 hover:bg-muted/20 ${isSelected ? 'bg-emerald-500/5' : idx % 2 ? 'bg-muted/5' : ''}`}>
+              <tr key={row.article} className={`border-b border-slate-100 hover:bg-indigo-50/30 transition-colors ${isSelected ? 'bg-emerald-50' : idx % 2 ? 'bg-slate-50/50' : ''}`}>
                 {onToggleSelect && (
                   <td className="w-8 px-2 py-1.5 text-center">
                     <input type="checkbox" checked={isSelected}
@@ -404,17 +404,17 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
                 <td className="px-3 py-1.5 font-medium text-primary/80 whitespace-nowrap">{row.article}</td>
                 <td className="px-3 py-1.5 text-muted-foreground max-w-[160px] truncate" title={row.name}>{row.name}</td>
                 <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(row.salesCount)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums text-red-400/70">{row.returnsCount > 0 ? formatNumber(row.returnsCount) : '—'}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-rose-500">{row.returnsCount > 0 ? formatNumber(row.returnsCount) : '—'}</td>
                 <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.avgPrice > 0 ? formatCurrency(row.avgPrice) : '—'}</td>
                 <td className="px-3 py-1.5 text-right tabular-nums font-medium">{formatCurrency(row.netSales)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums text-orange-400/80">{row.ozonCommission > 0 ? `-${formatCurrency(row.ozonCommission)}` : '—'}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums text-blue-400/80">{row.deliveryServices > 0 ? `-${formatCurrency(row.deliveryServices)}` : '—'}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums text-purple-400/80">{row.agentServices > 0 ? `-${formatCurrency(row.agentServices)}` : '—'}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums text-cyan-400/80">{(row.storage + row.fboServices) > 0 ? `-${formatCurrency(row.storage + row.fboServices)}` : '—'}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-orange-600">{row.ozonCommission > 0 ? `-${formatCurrency(row.ozonCommission)}` : '—'}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-indigo-500">{row.deliveryServices > 0 ? `-${formatCurrency(row.deliveryServices)}` : '—'}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-violet-500">{row.agentServices > 0 ? `-${formatCurrency(row.agentServices)}` : '—'}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-teal-500">{(row.storage + row.fboServices) > 0 ? `-${formatCurrency(row.storage + row.fboServices)}` : '—'}</td>
                 {hasDrrData && (
                   <td className="px-3 py-1.5 text-right tabular-nums">
                     {perfDrr > 0
-                      ? <span className={perfDrr > 30 ? 'text-red-400' : perfDrr > 15 ? 'text-yellow-400' : 'text-green-400/80'}>
+                      ? <span className={perfDrr > 30 ? 'text-rose-600' : perfDrr > 15 ? 'text-amber-500' : 'text-emerald-500'}>
                           {perfDrr.toFixed(1)}%
                         </span>
                       : <span className="text-muted-foreground/30">—</span>
@@ -425,13 +425,13 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
                   const an = analyticsByArticle?.[row.article];
                   return (
                     <>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-sky-400/70">
+                      <td className="px-3 py-1.5 text-right tabular-nums text-sky-600">
                         {an?.openCardCount ? formatNumber(an.openCardCount) : <span className="text-muted-foreground/30">—</span>}
                       </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-sky-400/70">
+                      <td className="px-3 py-1.5 text-right tabular-nums text-sky-600">
                         {an?.addToCartConversion ? `${an.addToCartConversion.toFixed(1)}%` : <span className="text-muted-foreground/30">—</span>}
                       </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-sky-400/70">
+                      <td className="px-3 py-1.5 text-right tabular-nums text-sky-600">
                         {an?.buyoutsPercent ? `${an.buyoutsPercent.toFixed(1)}%` : <span className="text-muted-foreground/30">—</span>}
                       </td>
                     </>
@@ -444,26 +444,26 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
                       onChangeVat={v  => updateCost(row.article, 'vatRate',    v)}
                       onClose={() => setEditing(null)} />
                   ) : (
-                    <span className={`group flex items-center justify-end gap-1 cursor-pointer rounded px-2 py-1 hover:bg-primary/10 hover:text-primary transition-colors tabular-nums ${row.costTotal > 0 ? 'text-muted-foreground' : 'text-yellow-400/50'}`}>
+                    <span className={`group flex items-center justify-end gap-1 cursor-pointer rounded px-2 py-1 hover:bg-primary/10 hover:text-primary transition-colors tabular-nums ${row.costTotal > 0 ? 'text-muted-foreground' : 'text-amber-500/50'}`}>
                       {row.costTotal > 0 ? `-${formatCurrency(row.costTotal)}` : '—'}
                       <Pencil className="w-2.5 h-2.5 opacity-0 group-hover:opacity-60 flex-shrink-0" />
                     </span>
                   )}
                 </td>
                 <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.taxAmount > 0 ? `-${formatCurrency(row.taxAmount)}` : '—'}</td>
-                <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${row.netProfit > 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(row.netProfit)}</td>
-                <td className={`px-3 py-1.5 text-right tabular-nums ${row.marginPercent > 20 ? 'text-green-400' : row.marginPercent > 10 ? 'text-yellow-400' : 'text-red-400'}`}>{formatPercent(row.marginPercent)}</td>
-                <td className={`px-3 py-1.5 text-right tabular-nums ${costMargin === null ? 'text-muted-foreground/30' : costMargin > 30 ? 'text-emerald-400' : costMargin > 10 ? 'text-yellow-400' : 'text-red-400'}`}>
+                <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${row.netProfit > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(row.netProfit)}</td>
+                <td className={`px-3 py-1.5 text-right tabular-nums ${row.marginPercent > 20 ? 'text-emerald-600' : row.marginPercent > 10 ? 'text-amber-500' : 'text-rose-600'}`}>{formatPercent(row.marginPercent)}</td>
+                <td className={`px-3 py-1.5 text-right tabular-nums ${costMargin === null ? 'text-muted-foreground/30' : costMargin > 30 ? 'text-emerald-600' : costMargin > 10 ? 'text-amber-500' : 'text-rose-600'}`}>
                   {costMargin !== null ? `${costMargin.toFixed(1)}%` : '—'}
                 </td>
-                <td className={`px-3 py-1.5 text-right tabular-nums ${row.netProfit >= 0 ? 'text-green-400/80' : 'text-red-400/80'}`}>
+                <td className={`px-3 py-1.5 text-right tabular-nums ${row.netProfit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                   {row.salesCount > 0 ? formatCurrency(row.netProfit / row.salesCount) : '—'}
                 </td>
               </tr>
             );
           })}
         </tbody>
-        <tfoot className="sticky bottom-0 z-10 bg-card border-t-2 border-border/60">
+        <tfoot className="sticky bottom-0 z-10 bg-gradient-to-r from-slate-50 to-indigo-50/50 border-t-2 border-indigo-100">
           <tr>
             <td colSpan={onToggleSelect ? 4 : 3} className="px-3 py-1.5 text-[10px] text-muted-foreground/60 font-medium">
               {nameFilter ? `Итого (фильтр): ${filteredRows.length} SKU` : `Итого: ${rows.length} SKU`}
@@ -471,23 +471,23 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
             <td className="px-3 py-1.5 text-right tabular-nums font-bold text-foreground">
               {formatNumber(totalSales)}
             </td>
-            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-red-400/70">
+            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-rose-500">
               {totalReturns > 0 ? formatNumber(totalReturns) : '—'}
             </td>
             <td />
             <td className="px-3 py-1.5 text-right tabular-nums font-bold text-foreground">
               {formatCurrency(totalRevenue)}
             </td>
-            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-orange-400/80">
+            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-orange-600">
               {totalCommission > 0 ? `-${formatCurrency(totalCommission)}` : '—'}
             </td>
-            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-blue-400/80">
+            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-indigo-500">
               {totalDelivery > 0 ? `-${formatCurrency(totalDelivery)}` : '—'}
             </td>
-            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-purple-400/80">
+            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-violet-500">
               {totalAgent > 0 ? `-${formatCurrency(totalAgent)}` : '—'}
             </td>
-            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-cyan-400/80">
+            <td className="px-3 py-1.5 text-right tabular-nums font-bold text-teal-500">
               {totalStorage > 0 ? `-${formatCurrency(totalStorage)}` : '—'}
             </td>
             {hasDrrData && <td />}
@@ -498,7 +498,7 @@ function SkuTable({ rows, costs, editingArticle, setEditing, updateCost, spendBy
             <td className="px-3 py-1.5 text-right tabular-nums font-bold text-muted-foreground">
               {totalTax > 0 ? `-${formatCurrency(totalTax)}` : '—'}
             </td>
-            <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${totalProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
               {formatCurrency(totalProfit)}
             </td>
             <td colSpan={3} />
@@ -526,8 +526,8 @@ function PerfApiBar({ clientId, setClientId, clientSecret, setClientSecret,
     <div className="flex-none border-b border-yellow-500/20 bg-yellow-500/5 text-[11px]" onClick={e => e.stopPropagation()}>
       {/* Primary row: Analytics API button (simpler, no extra creds) */}
       <div className="flex items-center gap-3 flex-wrap px-4 py-2">
-        <Megaphone className="w-3.5 h-3.5 text-yellow-400/80 flex-shrink-0" />
-        <span className="text-yellow-400/80 font-medium whitespace-nowrap">Реклама:</span>
+        <Megaphone className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+        <span className="text-amber-500 font-medium whitespace-nowrap">Реклама:</span>
 
         {/* Analytics API — uses existing Seller credentials */}
         {onLoadFromAnalytics && (
@@ -544,13 +544,13 @@ function PerfApiBar({ clientId, setClientId, clientSecret, setClientSecret,
         {/* Performance API toggle */}
         <button
           onClick={() => setExpanded(v => !v)}
-          className="flex items-center gap-1 text-muted-foreground hover:text-yellow-400/80 px-2 py-1 border border-yellow-500/20 transition-colors">
+          className="flex items-center gap-1 text-muted-foreground hover:text-amber-500 px-2 py-1 border border-yellow-500/20 transition-colors">
           Performance API
           {expanded ? <ChevronUp className="w-3 h-3 ml-0.5" /> : <ChevronDown className="w-3 h-3 ml-0.5" />}
         </button>
 
         {hasData && (
-          <button onClick={onClear} className="flex items-center gap-1 text-muted-foreground hover:text-red-400 px-2 py-1 border border-border/50">
+          <button onClick={onClear} className="flex items-center gap-1 text-muted-foreground hover:text-rose-500 px-2 py-1 border border-border/50">
             <Trash2 className="w-3 h-3" /> Сбросить
           </button>
         )}
@@ -590,14 +590,14 @@ function PerfApiBar({ clientId, setClientId, clientSecret, setClientSecret,
 
       {/* Progress indicator for Analytics API load */}
       {loading && progress && !expanded && (
-        <div className="mx-4 mb-2 flex items-center gap-2 text-yellow-400/80 text-[10px]">
+        <div className="mx-4 mb-2 flex items-center gap-2 text-amber-500 text-[10px]">
           <RefreshCw className="w-3 h-3 animate-spin flex-shrink-0" />
           <span>{progress}</span>
         </div>
       )}
 
       {error && (
-        <div className="mx-4 mb-2 flex items-center gap-2 text-red-400 border border-red-400/20 bg-red-400/5 px-3 py-1">
+        <div className="mx-4 mb-2 flex items-center gap-2 text-rose-600 border border-rose-200 bg-rose-50 rounded-xl px-3 py-1">
           <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /><span>{error}</span>
         </div>
       )}
@@ -627,8 +627,8 @@ function CampaignsPanel({ campaigns, spendByArticle, source, totalSpend: totalSp
     <div className="flex-none border-b border-yellow-500/20 bg-yellow-500/5">
       <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] cursor-pointer hover:bg-yellow-500/10"
         onClick={() => !isAnalytics && setExpanded(v => !v)}>
-        <Megaphone className="w-3.5 h-3.5 text-yellow-400/80 flex-shrink-0" />
-        <span className="font-medium text-yellow-400/80">
+        <Megaphone className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+        <span className="font-medium text-amber-500">
           {isAnalytics ? 'Реклама (Analytics API)' : 'Performance API'}
         </span>
         <span className="text-muted-foreground">
@@ -649,7 +649,7 @@ function CampaignsPanel({ campaigns, spendByArticle, source, totalSpend: totalSp
         </span>
         <div className="flex-1" />
         <button onClick={e => { e.stopPropagation(); onClear(); }}
-          className="text-muted-foreground/40 hover:text-red-400 px-1 text-xs" title="Сбросить рекламные данные">✕</button>
+          className="text-muted-foreground/40 hover:text-rose-500 px-1 text-xs" title="Сбросить рекламные данные">✕</button>
         {!isAnalytics && (expanded
           ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground/50" />
           : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground/50" />
@@ -674,18 +674,18 @@ function CampaignsPanel({ campaigns, spendByArticle, source, totalSpend: totalSp
                     <td className="px-3 py-1.5 max-w-[200px] truncate font-medium" title={c.title}>{c.title || c.id}</td>
                     <td className="px-3 py-1.5 text-muted-foreground text-[10px]">{c.type}</td>
                     <td className="px-3 py-1.5">
-                      <span className={`text-[10px] px-1.5 py-0.5 ${c.state.includes('RUNNING') ? 'bg-green-500/20 text-green-400' : 'bg-muted/30 text-muted-foreground'}`}>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${c.state.includes('RUNNING') ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                         {c.state.replace('CAMPAIGN_STATE_', '')}
                       </span>
                     </td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{c.productsCount || '—'}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-red-400/80">{c.moneySpent > 0 ? `-${formatCurrency(c.moneySpent)}` : '—'}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-rose-500">{c.moneySpent > 0 ? `-${formatCurrency(c.moneySpent)}` : '—'}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{c.views > 0 ? formatNumber(c.views) : '—'}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{c.clicks > 0 ? formatNumber(c.clicks) : '—'}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{ctr > 0 ? `${ctr.toFixed(2)}%` : '—'}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{c.orders > 0 ? formatNumber(c.orders) : '—'}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{c.revenue > 0 ? formatCurrency(c.revenue) : '—'}</td>
-                    <td className={`px-3 py-1.5 text-right tabular-nums font-medium ${c.drr > 30 ? 'text-red-400' : c.drr > 15 ? 'text-yellow-400' : c.drr > 0 ? 'text-green-400' : 'text-muted-foreground'}`}>
+                    <td className={`px-3 py-1.5 text-right tabular-nums font-medium ${c.drr > 30 ? 'text-rose-600' : c.drr > 15 ? 'text-amber-500' : c.drr > 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
                       {c.drr > 0 ? `${c.drr.toFixed(1)}%` : '—'}
                     </td>
                   </tr>
@@ -708,7 +708,7 @@ function ActionBar({ filter, setFilter, hasCosts, costsCount, onExport }: {
     <div className="flex-none flex items-center gap-2 px-3 py-1 border-b border-border/30 bg-card text-[11px]">
       <Pencil className="w-3 h-3 text-muted-foreground/40" />
       <span className="text-muted-foreground/50">Нажмите «Себест.» для редактирования</span>
-      {hasCosts && <span className="text-green-400/60">· указана для {costsCount} SKU</span>}
+      {hasCosts && <span className="text-emerald-500">· указана для {costsCount} SKU</span>}
       <div className="flex-1" />
 
       <div className="flex border border-border">
@@ -742,8 +742,8 @@ function FileBar({ folderName, loadedFiles, onSelectFolder, onClear }: {
       <div className="flex items-center gap-2 px-3 py-1.5">
         <FolderOpen className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
         <span className="text-muted-foreground truncate max-w-[200px]">{folderName ?? 'Файлы'}</span>
-        <span className="text-green-400/70">· {good.length} {good.length === 1 ? 'файл' : good.length < 5 ? 'файла' : 'файлов'}
-          {bad.length > 0 && <span className="text-red-400/70 ml-1">· {bad.length} ошибок</span>}
+        <span className="text-emerald-500">· {good.length} {good.length === 1 ? 'файл' : good.length < 5 ? 'файла' : 'файлов'}
+          {bad.length > 0 && <span className="text-rose-500 ml-1">· {bad.length} ошибок</span>}
         </span>
         <button onClick={() => setExpanded(v => !v)} className="text-muted-foreground/60 hover:text-foreground">{expanded ? '▲' : '▼'}</button>
         <div className="flex-1" />
@@ -752,7 +752,7 @@ function FileBar({ folderName, loadedFiles, onSelectFolder, onClear }: {
             <RefreshCw className="w-3 h-3" /> Сменить
           </button>
         )}
-        <button onClick={onClear} className="flex items-center gap-1 text-muted-foreground hover:text-red-400 px-2 py-0.5 border border-border/50">
+        <button onClick={onClear} className="flex items-center gap-1 text-muted-foreground hover:text-rose-500 px-2 py-0.5 border border-border/50">
           <Trash2 className="w-3 h-3" /> Очистить
         </button>
       </div>
@@ -760,8 +760,8 @@ function FileBar({ folderName, loadedFiles, onSelectFolder, onClear }: {
         <div className="border-t border-border/30 px-3 py-2 bg-muted/5 flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
           {loadedFiles.map(f => (
             <div key={f.name} title={f.error ?? `${f.rowCount} SKU`}
-              className={`flex items-center gap-1 px-2 py-0.5 border text-[10px] ${f.error ? 'border-red-400/30 text-red-400/70 bg-red-400/5' : 'border-border/50 text-muted-foreground bg-muted/10'}`}>
-              {f.error ? <AlertCircle className="w-2.5 h-2.5 flex-shrink-0" /> : <CheckCircle className="w-2.5 h-2.5 flex-shrink-0 text-green-400/60" />}
+              className={`flex items-center gap-1 px-2 py-0.5 border text-[10px] ${f.error ? 'border-red-400/30 text-rose-500 bg-red-400/5' : 'border-border/50 text-muted-foreground bg-muted/10'}`}>
+              {f.error ? <AlertCircle className="w-2.5 h-2.5 flex-shrink-0" /> : <CheckCircle className="w-2.5 h-2.5 flex-shrink-0 text-emerald-500" />}
               <span className="truncate max-w-[180px]">{f.name}</span>
               {!f.error && <span className="text-muted-foreground/50">({f.rowCount})</span>}
             </div>
@@ -816,7 +816,7 @@ function DropZone({ kind, loading, error, onSelectFolder, onDropFiles }: {
           </>
         )}
         <div className="mt-4 text-[10px] text-muted-foreground/50 whitespace-pre-line leading-relaxed">{fmts}</div>
-        {error && <p className="mt-3 text-xs text-red-400 border border-red-400/20 bg-red-400/5 px-3 py-2">{error}</p>}
+        {error && <p className="mt-3 text-xs text-rose-600 border border-rose-200 bg-rose-50 rounded-xl px-3 py-2">{error}</p>}
       </div>
       <input ref={fileRef} type="file" accept=".xlsx,.xls" multiple className="hidden"
         onChange={e => { const f = Array.from(e.target.files ?? []); if (f.length) onDropFiles(f); e.target.value = ''; }} />
@@ -836,7 +836,7 @@ function ChipsInput({ chips }: { chips: NonNullable<ApiBarField['chips']> }) {
       {chips.ids.map(id => (
         <span key={id} className="flex items-center gap-1 px-2 py-0.5 bg-yellow-600/20 border border-yellow-600/30 text-yellow-300 font-mono text-[10px]">
           {id}
-          <button onClick={() => chips.onRemove(id)} className="text-yellow-400/60 hover:text-red-400 ml-0.5">
+          <button onClick={() => chips.onRemove(id)} className="text-amber-500 hover:text-rose-500 ml-0.5">
             <X className="w-2.5 h-2.5" />
           </button>
         </span>
@@ -938,14 +938,14 @@ function ApiSettingsBar({ fields, dateFrom, setDateFrom, dateTo, setDateTo, load
         </button>
 
         {hasData && onClear && (
-          <button onClick={onClear} className="flex items-center gap-1 text-muted-foreground hover:text-red-400 px-2 py-1 border border-border/50">
+          <button onClick={onClear} className="flex items-center gap-1 text-muted-foreground hover:text-rose-500 px-2 py-1 border border-border/50">
             <Trash2 className="w-3 h-3" /> Очистить
           </button>
         )}
       </div>
 
       {error && (
-        <div className="mt-2 flex items-center gap-2 text-red-400 border border-red-400/20 bg-red-400/5 px-3 py-1.5">
+        <div className="mt-2 flex items-center gap-2 text-rose-600 border border-rose-200 bg-rose-50 rounded-xl px-3 py-1.5">
           <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /><span>{error}</span>
         </div>
       )}
@@ -1260,7 +1260,7 @@ function YmTabContent({ mp, api, selectedArticles, onToggleSelect }: {
                 onSelectFolder={handleSelectFolder} onDropFiles={mp.addFiles} />
             : !api.loading && (
               <ApiEmptyState
-                icon={<Key className="w-6 h-6 text-yellow-400" />}
+                icon={<Key className="w-6 h-6 text-amber-500" />}
                 title="Подключение через Яндекс Маркет API"
                 hint="Введите Api-Key и ID кампании выше, затем нажмите «Загрузить»"
                 steps={[
@@ -1393,7 +1393,7 @@ function WbTabContent({ wb, selectedArticles, onToggleSelect }: {
                 </div>
 
                 {/* Local proxy status */}
-                <div className={`text-[11px] border px-4 py-2 text-left ${localProxy ? 'border-green-500/40 bg-green-950/20 text-green-400' : 'border-yellow-500/40 bg-yellow-950/20 text-yellow-400'}`}>
+                <div className={`text-[11px] border rounded-xl px-4 py-2 text-left ${localProxy ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-amber-300 bg-amber-50 text-amber-700'}`}>
                   {localProxy
                     ? '🟢 Локальный прокси работает — запросы идут с вашего IP'
                     : '🔴 Локальный прокси не запущен. WB блокирует облачные IP.'}
@@ -1468,11 +1468,11 @@ function importSettings(file: File, onDone: () => void) {
 // ─── Root ─────────────────────────────────────────────────────────────────────
 type TabId = 'ozon' | 'yandex' | 'wildberries' | 'compare';
 
-const TABS: { id: TabId; label: string; badgeClass: string }[] = [
-  { id: 'ozon',        label: 'Ozon',          badgeClass: 'text-blue-400'   },
-  { id: 'yandex',      label: 'Яндекс Маркет', badgeClass: 'text-yellow-400' },
-  { id: 'wildberries', label: 'Wildberries',   badgeClass: 'text-violet-400' },
-  { id: 'compare',     label: 'Сравнение',     badgeClass: 'text-emerald-400' },
+const TABS: { id: TabId; label: string; badgeClass: string; activeClass: string }[] = [
+  { id: 'ozon',        label: 'Ozon',          badgeClass: 'text-blue-500',    activeClass: 'border-blue-500 text-blue-600'    },
+  { id: 'yandex',      label: 'Яндекс Маркет', badgeClass: 'text-amber-600',   activeClass: 'border-amber-500 text-amber-600'  },
+  { id: 'wildberries', label: 'Wildberries',   badgeClass: 'text-violet-600',  activeClass: 'border-violet-500 text-violet-600'},
+  { id: 'compare',     label: 'Сравнение',     badgeClass: 'text-emerald-600', activeClass: 'border-emerald-500 text-emerald-600'},
 ];
 
 // ─── Compare Tab ──────────────────────────────────────────────────────────────
@@ -1487,21 +1487,21 @@ interface SelectedItem {
 const MP_META: Record<MpKey, { label: string; headerBg: string; borderLeft: string; badge: string }> = {
   ozon: {
     label: 'Ozon',
-    headerBg: 'bg-blue-500/10 text-blue-400',
-    borderLeft: 'border-l border-blue-500/25',
-    badge: 'bg-blue-500/20 text-blue-300 border border-blue-500/40',
+    headerBg: 'bg-blue-50 text-blue-700',
+    borderLeft: 'border-l border-blue-200',
+    badge: 'bg-blue-100 text-blue-700 border border-blue-200',
   },
   ym: {
     label: 'Яндекс Маркет',
-    headerBg: 'bg-yellow-500/10 text-yellow-400',
-    borderLeft: 'border-l border-yellow-500/25',
-    badge: 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/40',
+    headerBg: 'bg-amber-50 text-amber-700',
+    borderLeft: 'border-l border-amber-200',
+    badge: 'bg-amber-100 text-amber-700 border border-amber-200',
   },
   wb: {
     label: 'Wildberries',
-    headerBg: 'bg-violet-500/10 text-violet-400',
-    borderLeft: 'border-l border-violet-500/25',
-    badge: 'bg-violet-500/20 text-violet-300 border border-violet-500/40',
+    headerBg: 'bg-violet-50 text-violet-700',
+    borderLeft: 'border-l border-violet-200',
+    badge: 'bg-violet-100 text-violet-700 border border-violet-200',
   },
 };
 
@@ -1578,7 +1578,7 @@ function CompareTabContent({ items, onClear }: {
         })}
         <div className="flex-1" />
         <button onClick={onClear}
-          className="flex items-center gap-1.5 px-2.5 py-1 text-muted-foreground hover:text-red-400 border border-border hover:border-red-500/30 transition-colors text-[10px]">
+          className="flex items-center gap-1.5 px-2.5 py-1 text-muted-foreground hover:text-rose-500 border border-border hover:border-red-500/30 transition-colors text-[10px]">
           <Trash2 className="w-3 h-3" />Очистить выбор
         </button>
       </div>
@@ -1620,16 +1620,16 @@ function CompareTabContent({ items, onClear }: {
               const isBest  = maxMargin !== null && row.marginPercent === maxMargin;
               const isWorst = minMargin !== null && row.marginPercent === minMargin && minMargin < maxMargin!;
               const marginCls = isBest
-                ? 'text-green-400 font-bold'
+                ? 'text-emerald-600 font-bold'
                 : isWorst
-                  ? 'text-red-400'
-                  : row.marginPercent > 20 ? 'text-green-400/70'
-                    : row.marginPercent > 5  ? 'text-yellow-400/80'
-                    : 'text-red-400/70';
+                  ? 'text-rose-600'
+                  : row.marginPercent > 20 ? 'text-emerald-500'
+                    : row.marginPercent > 5  ? 'text-amber-500'
+                    : 'text-rose-500';
               const profitPerUnit = row.salesCount > 0 ? row.netProfit / row.salesCount : 0;
               return (
                 <tr key={`${mp}:${row.article}`}
-                  className={`border-b border-border/20 hover:bg-muted/20 ${idx % 2 ? 'bg-muted/5' : ''}`}>
+                  className={`border-b border-slate-100 hover:bg-indigo-50/30 transition-colors ${idx % 2 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-3 py-1.5">
                     <span className={`inline-block px-2 py-0.5 text-[9px] font-bold ${MP_META[mp].badge}`}>
                       {MP_META[mp].label}
@@ -1639,14 +1639,14 @@ function CompareTabContent({ items, onClear }: {
                   <td className="px-3 py-1.5 text-muted-foreground max-w-[200px] truncate" title={row.name}>{row.name || '—'}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(row.salesCount)}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums font-medium">{formatCurrency(row.netSales)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-orange-400/80">{row.ozonCommission > 0 ? `-${formatCurrency(row.ozonCommission)}` : '—'}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-blue-400/80">{row.deliveryServices > 0 ? `-${formatCurrency(row.deliveryServices)}` : '—'}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-cyan-400/80">{(row.storage + (row.fboServices ?? 0)) > 0 ? `-${formatCurrency(row.storage + (row.fboServices ?? 0))}` : '—'}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-orange-600">{row.ozonCommission > 0 ? `-${formatCurrency(row.ozonCommission)}` : '—'}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-indigo-500">{row.deliveryServices > 0 ? `-${formatCurrency(row.deliveryServices)}` : '—'}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-teal-500">{(row.storage + (row.fboServices ?? 0)) > 0 ? `-${formatCurrency(row.storage + (row.fboServices ?? 0))}` : '—'}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.costTotal > 0 ? `-${formatCurrency(row.costTotal)}` : '—'}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{row.taxAmount > 0 ? `-${formatCurrency(row.taxAmount)}` : '—'}</td>
                   <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${row.netProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(row.netProfit)}</td>
                   <td className={`px-3 py-1.5 text-right tabular-nums ${marginCls}`}>{formatPercent(row.marginPercent)}</td>
-                  <td className={`px-3 py-1.5 text-right tabular-nums ${profitPerUnit >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>{formatCurrency(profitPerUnit)}</td>
+                  <td className={`px-3 py-1.5 text-right tabular-nums ${profitPerUnit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{formatCurrency(profitPerUnit)}</td>
                 </tr>
               );
             })}
@@ -1732,74 +1732,80 @@ export default function Home() {
   };
 
   return (
-    <div className="h-screen bg-background text-foreground flex flex-col font-mono text-sm dark select-none">
+    <div className="h-screen bg-background text-foreground flex flex-col font-sans text-sm select-none">
       {/* HEADER */}
-      <header className="flex-none flex items-center gap-4 px-5 py-2.5 border-b bg-card z-20">
-        <div className="flex items-center gap-2.5">
-          <FileSpreadsheet className="w-5 h-5 text-primary flex-shrink-0" />
-          <h1 className="text-base font-bold uppercase tracking-tight whitespace-nowrap">Unit Economics</h1>
+      <header className="flex-none bg-white border-b border-slate-200 shadow-sm z-20">
+        {/* Top row: logo + actions */}
+        <div className="flex items-center gap-4 px-5 py-2.5">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow shadow-indigo-200 flex-shrink-0">
+              <BarChart2 className="w-4 h-4 text-white" />
+            </div>
+            <h1 className="text-base font-bold tracking-tight whitespace-nowrap text-slate-900">Unit Economics</h1>
+          </div>
+
+          <div className="flex-1" />
+
+          {/* Desktop download */}
+          <a
+            href="/UnitEconomics-win-x64-latest.zip"
+            download
+            title="Скачать десктопную версию (Windows x64)"
+            className="flex items-center gap-1.5 h-7 px-2.5 text-[11px] rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 transition-colors text-indigo-600 whitespace-nowrap font-medium">
+            <Download className="w-3.5 h-3.5" />
+            <span>Скачать .exe</span>
+          </a>
+
+          {/* Settings export / import */}
+          <div className="flex items-center gap-1">
+            <button
+              title="Экспортировать настройки (ключи API, себестоимость)"
+              onClick={exportSettings}
+              className="flex items-center gap-1.5 h-7 px-2.5 text-[11px] rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors text-slate-500 hover:text-slate-700 font-medium">
+              <Download className="w-3.5 h-3.5" />
+              <span>Настройки</span>
+            </button>
+            <button
+              title="Импортировать настройки из файла"
+              onClick={() => importRef.current?.click()}
+              className="flex items-center gap-1.5 h-7 px-2.5 text-[11px] rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors text-slate-500 hover:text-slate-700">
+              <Upload className="w-3.5 h-3.5" />
+            </button>
+            <input
+              ref={importRef} type="file" accept=".json" className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0];
+                if (file) importSettings(file, () => { window.location.reload(); });
+                e.target.value = '';
+              }}
+            />
+          </div>
+
+          <select className="h-7 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 text-slate-700 font-medium"
+            value={tax.type}
+            onChange={e => {
+              const opt = TAX_OPTIONS.find(o => o.type === e.target.value);
+              if (opt) setTax({ type: opt.type, rate: opt.rate });
+            }}>
+            {TAX_OPTIONS.map(o => <option key={o.type} value={o.type}>{o.label}</option>)}
+          </select>
         </div>
 
-        <div className="flex border border-border text-[11px]">
-          {TABS.map((t, i) => (
+        {/* Tab nav row — underline style */}
+        <div className="flex px-5 border-t border-slate-100">
+          {TABS.map(t => (
             <button key={t.id}
-              className={`flex items-center gap-1.5 px-4 py-1.5 transition-colors ${i > 0 ? 'border-l border-border' : ''} ${activeTab === t.id ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-[12px] font-medium border-b-2 transition-colors -mb-px ${activeTab === t.id ? t.activeClass : 'border-transparent text-slate-400 hover:text-slate-600'}`}
               onClick={() => setActiveTab(t.id)}>
               <span>{t.label}</span>
               {skuCounts[t.id] > 0 && (
-                <span className={`text-[10px] font-bold ${activeTab === t.id ? 'text-primary-foreground/70' : t.badgeClass}`}>
-                  {skuCounts[t.id]} SKU
+                <span className={`text-[10px] font-bold ${activeTab === t.id ? '' : t.badgeClass}`}>
+                  {skuCounts[t.id]}
                 </span>
               )}
             </button>
           ))}
         </div>
-
-        <div className="flex-1" />
-
-        {/* Desktop download */}
-        <a
-          href="/UnitEconomics-win-x64-latest.zip"
-          download
-          title="Скачать десктопную версию (Windows x64)"
-          className="flex items-center gap-1.5 h-7 px-2.5 text-[11px] border border-primary/40 bg-primary/10 hover:bg-primary/20 transition-colors text-primary whitespace-nowrap">
-          <Download className="w-3.5 h-3.5" />
-          <span>Скачать .exe</span>
-        </a>
-
-        {/* Settings export / import */}
-        <div className="flex items-center gap-1">
-          <button
-            title="Экспортировать настройки (ключи API, себестоимость)"
-            onClick={exportSettings}
-            className="flex items-center gap-1.5 h-7 px-2.5 text-[11px] border border-border bg-muted hover:bg-muted/70 transition-colors text-muted-foreground hover:text-foreground">
-            <Download className="w-3.5 h-3.5" />
-            <span>Настройки</span>
-          </button>
-          <button
-            title="Импортировать настройки из файла"
-            onClick={() => importRef.current?.click()}
-            className="flex items-center gap-1.5 h-7 px-2.5 text-[11px] border border-border bg-muted hover:bg-muted/70 transition-colors text-muted-foreground hover:text-foreground">
-            <Upload className="w-3.5 h-3.5" />
-          </button>
-          <input
-            ref={importRef} type="file" accept=".json" className="hidden"
-            onChange={e => {
-              const file = e.target.files?.[0];
-              if (file) importSettings(file, () => { window.location.reload(); });
-              e.target.value = '';
-            }}
-          />
-        </div>
-
-        <select className="h-7 text-xs bg-muted border border-border rounded-none px-2 text-foreground"
-          value={tax.type}
-          onChange={e => {
-            const opt = TAX_OPTIONS.find(o => o.type === e.target.value);
-            if (opt) setTax({ type: opt.type, rate: opt.rate });
-          }}>
-          {TAX_OPTIONS.map(o => <option key={o.type} value={o.type}>{o.label}</option>)}
-        </select>
       </header>
 
       {/* CONTENT */}
@@ -1813,7 +1819,7 @@ export default function Home() {
 
       {/* ── Floating compare bar ── */}
       {compareSelection.size > 0 && activeTab !== 'compare' && (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-2.5 bg-card border border-primary/40 shadow-xl text-xs">
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-2.5 bg-white rounded-2xl border border-indigo-200 shadow-xl text-xs">
           <BarChart2 className="w-4 h-4 text-primary flex-shrink-0" />
           <span className="font-medium">
             Выбрано {compareSelection.size} SKU
@@ -1830,11 +1836,11 @@ export default function Home() {
             })}
           </div>
           <button onClick={openCompare}
-            className="flex items-center gap-1.5 px-3 py-1 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors font-semibold">
+            className="flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-indigo-500 to-violet-600 hover:opacity-90 text-white rounded-xl transition-colors font-semibold">
             Сравнить →
           </button>
           <button onClick={clearCompare} title="Сбросить выбор"
-            className="p-1 text-muted-foreground hover:text-red-400 transition-colors">
+            className="p-1 text-muted-foreground hover:text-rose-500 transition-colors">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
