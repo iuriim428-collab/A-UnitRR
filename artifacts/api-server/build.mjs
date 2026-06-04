@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { rm, copyFile } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -29,6 +29,8 @@ async function buildAll() {
     // - use path traversal to read files (e.g. @google-cloud/secret-manager loads sibling .proto files)
     external: [
       "*.node",
+      "connect-pg-simple",
+      "express-session",
       "sharp",
       "better-sqlite3",
       "sqlite3",
@@ -118,6 +120,18 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
   });
+
+  await copyAssets(distDir);
+}
+
+// copy connect-pg-simple's table.sql into dist so it can be found at runtime
+async function copyAssets(distDir) {
+  const require = createRequire(import.meta.url);
+  const pgSimpleDir = path.dirname(require.resolve("connect-pg-simple"));
+  await copyFile(
+    path.join(pgSimpleDir, "table.sql"),
+    path.join(distDir, "table.sql"),
+  );
 }
 
 buildAll().catch((err) => {

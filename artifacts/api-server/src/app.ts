@@ -2,8 +2,8 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import cors from "cors";
 import pinoHttp from "pino-http";
 import session from "express-session";
-import connectPgSimple from "connect-pg-simple";
 import pg from "pg";
+import { PgSessionStore } from "./lib/pg-session-store";
 import router from "./routes";
 import { logger } from "./lib/logger";
 
@@ -12,8 +12,6 @@ declare module "express-session" {
     authenticated: boolean;
   }
 }
-
-const PgSession = connectPgSimple(session);
 
 const pgPool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
@@ -50,11 +48,7 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(
   session({
-    store: new PgSession({
-      pool: pgPool,
-      tableName: "user_sessions",
-      createTableIfMissing: true,
-    }),
+    store: new PgSessionStore(pgPool, "user_sessions"),
     secret: process.env.SESSION_SECRET ?? "fallback-dev-secret",
     resave: false,
     saveUninitialized: false,
