@@ -13,9 +13,16 @@ export type FilterType = 'all' | 'profitable' | 'unprofitable';
 const DEFAULT_COST: SkuCost = { costPerUnit: 0, vatRate: 0 };
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
-function firstOfMonthStr() {
+function firstOfLastMonthStr() {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+  d.setDate(1);
+  d.setMonth(d.getMonth() - 1);
+  return d.toISOString().slice(0, 10);
+}
+function lastOfLastMonthStr() {
+  const d = new Date();
+  d.setDate(0); // last day of previous month
+  return d.toISOString().slice(0, 10);
 }
 
 const LS_TOKEN_KEY     = 'wb_api_token';
@@ -60,9 +67,9 @@ export function useWildberries(tax: TaxSettings, setTax: (t: TaxSettings) => voi
     () => localStorage.getItem(LS_ADVERT_KEY) ?? ''
   );
 
-  // Date range
-  const [dateFrom, setDateFrom] = useState(firstOfMonthStr);
-  const [dateTo,   setDateTo]   = useState(todayStr);
+  // Date range — default to last month: WB settlement data has ~1-2 week delay
+  const [dateFrom, setDateFrom] = useState(firstOfLastMonthStr);
+  const [dateTo,   setDateTo]   = useState(lastOfLastMonthStr);
 
   useEffect(() => {
     try { localStorage.setItem(LS_COSTS_KEY, JSON.stringify(costs)); } catch {}
@@ -117,7 +124,12 @@ export function useWildberries(tax: TaxSettings, setTax: (t: TaxSettings) => voi
       const cards = await fetchWBAnalytics(tok.trim(), df, dt);
       setAnalytics(buildAnalyticsMap(cards, currentNmMap));
     } catch (e) {
-      setAnalyticsError(e instanceof Error ? e.message : 'Ошибка аналитики');
+      const msg = e instanceof Error ? e.message : 'Ошибка аналитики';
+      setAnalyticsError(
+        msg.includes('ENOTFOUND') || msg.includes('fetch failed')
+          ? 'недоступно с сервера (запустите десктопное приложение)'
+          : msg,
+      );
     } finally {
       setAnalyticsLoading(false);
     }
@@ -174,7 +186,7 @@ export function useWildberries(tax: TaxSettings, setTax: (t: TaxSettings) => voi
       setRowCount(raw.length);
 
       if (parsed.length === 0) {
-        setError('Нет данных за выбранный период');
+        setError('Нет данных за выбранный период. WB публикует отчёт о расчётах с задержкой ~1–2 недели — попробуйте выбрать прошлый месяц.');
       } else {
         const analyticsTok = analyticsToken.trim() || token.trim();
         const advertTok    = advertToken.trim()    || token.trim();
