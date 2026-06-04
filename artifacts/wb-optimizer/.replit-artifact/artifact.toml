@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/wb"
+title = "AD Unit R — Ad Optimizer + Unit Economics"
+version = "1.0.0"
+id = "artifacts/wb-optimizer"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/wb" ]
+localPort = 24268
+
+[services.development]
+run = "pnpm --filter @workspace/wb-optimizer run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/wb-optimizer", "run", "build" ]
+publicDir = "artifacts/wb-optimizer/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24268"
+BASE_PATH = "/wb"
