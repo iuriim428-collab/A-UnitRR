@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: adunit
+      POSTGRES_USER: adunit
+      POSTGRES_PASSWORD: adunit
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: artifacts/api-server/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      DATABASE_URL: postgresql://adunit:adunit@db:5432/adunit
+      SESSION_SECRET: change-me-in-production
+      APP_PASSWORD: "${APP_PASSWORD:-123321Qq}"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  wb-optimizer:
+    build:
+      context: .
+      dockerfile: artifacts/wb-optimizer/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:

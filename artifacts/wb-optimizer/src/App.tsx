@@ -6,6 +6,8 @@ import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout";
 import Login from "@/pages/login";
 import { NewOrdersProvider } from "@/contexts/new-orders-context";
+import { useApiSettingsSync } from "@/hooks/use-api-settings";
+import Settings from "@/pages/settings";
 
 // Pages
 import Dashboard from "@/pages/dashboard";
@@ -41,10 +43,16 @@ const queryClient = new QueryClient({
   },
 });
 
+function AppWithSettings({ children }: { children: React.ReactNode }) {
+  useApiSettingsSync();
+  return <>{children}</>;
+}
+
 function Router() {
   return (
     <Layout>
       <Switch>
+        <Route path="/settings" component={Settings} />
         <Route path="/" component={Dashboard} />
         <Route path="/products" component={Products} />
         <Route path="/campaigns" component={Campaigns} />
@@ -103,7 +111,9 @@ function AuthGate() {
   return (
     <NewOrdersProvider>
       <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-        <Router />
+        <AppWithSettings>
+          <Router />
+        </AppWithSettings>
       </WouterRouter>
     </NewOrdersProvider>
   );

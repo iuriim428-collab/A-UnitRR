@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Package, TrendingUp, TestTube, LineChart, ChevronRight, Layers, BarChart2, ScanSearch, Zap, Megaphone, Rss, Warehouse, LogOut, Truck, LayoutGrid, Bell, PackageCheck, Calculator } from "lucide-react";
+import { LayoutDashboard, Package, TrendingUp, TestTube, LineChart, ChevronRight, Layers, BarChart2, ScanSearch, Zap, Megaphone, Rss, Warehouse, LogOut, Truck, LayoutGrid, Bell, PackageCheck, Calculator, Settings } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNewOrders } from "@/contexts/new-orders-context";
@@ -198,7 +198,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
 
-        <div className="p-3 border-t space-y-2">
+        <div className="p-3 border-t space-y-1">
+          <Link
+            href="/settings"
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all w-full ${
+              location === "/settings"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            <Settings className="h-4 w-4" />
+            Настройки API
+          </Link>
           <button
             onClick={handleLogout}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
@@ -206,7 +217,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <LogOut className="h-4 w-4" />
             Выйти
           </button>
-          <p className="text-xs text-muted-foreground text-center">Ad Optimizer v0.1</p>
+          <p className="text-xs text-muted-foreground text-center pt-1">Ad Optimizer v0.1</p>
         </div>
       </aside>
 
