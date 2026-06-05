@@ -1022,6 +1022,15 @@ function OzonTabContent({ mp, api, selectedArticles, onToggleSelect }: {
     return Object.values(perfApi.report.spendByArticle).reduce((s, v) => s + v, 0);
   }, [perfApi.report]);
 
+  // Auto-load Performance (Analytics API) right after the Ozon Seller report loads
+  const handleOzonLoad = useCallback(async () => {
+    await api.loadReport();
+    // Only trigger if credentials are present — runs in background, don't await
+    if (api.clientId.trim() && api.apiKey.trim()) {
+      perfApi.loadFromAnalytics(api.clientId, api.apiKey, api.dateFrom, api.dateTo);
+    }
+  }, [api, perfApi]);
+
   const mkExport = (prefix: string) => () => exportToExcel(
     active.calculatedRows.map(r => ({
       'Артикул': r.article, 'Название': r.name,
@@ -1064,7 +1073,7 @@ function OzonTabContent({ mp, api, selectedArticles, onToggleSelect }: {
             dateTo={api.dateTo}     setDateTo={api.setDateTo}
             loading={api.loading}   error={api.error}
             statusLine={api.opCount !== null ? `Загружено ${api.opCount.toLocaleString('ru')} операций · ${api.rows.length} SKU` : undefined}
-            onLoad={api.loadReport}
+            onLoad={handleOzonLoad}
             onClear={api.rows.length > 0 ? api.clear : undefined}
             hasData={api.rows.length > 0}
           />
