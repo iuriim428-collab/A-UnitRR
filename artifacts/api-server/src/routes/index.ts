@@ -23,6 +23,7 @@ import ordersFeedRouter from "./orders-feed";
 import stocksRouter from "./stocks";
 import shipmentPlanRouter from "./shipment-plan";
 import shipmentsRouter from "./shipments";
+import costsRouter from "./costs";
 
 const router: IRouter = Router();
 
@@ -50,5 +51,6 @@ router.use(ordersFeedRouter);
 router.use(stocksRouter);
 router.use(shipmentPlanRouter);
 router.use(shipmentsRouter);
+router.use(costsRouter);
 
 export default router;
