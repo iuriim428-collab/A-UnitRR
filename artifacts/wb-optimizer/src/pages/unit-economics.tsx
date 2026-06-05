@@ -1022,10 +1022,9 @@ function OzonTabContent({ mp, api, selectedArticles, onToggleSelect }: {
     return Object.values(perfApi.report.spendByArticle).reduce((s, v) => s + v, 0);
   }, [perfApi.report]);
 
-  // Auto-load Performance (Analytics API) right after the Ozon Seller report loads
-  const handleOzonLoad = useCallback(async () => {
-    await api.loadReport();
-    // Only trigger if credentials are present — runs in background, don't await
+  // Load Seller report + Performance Analytics simultaneously
+  const handleOzonLoad = useCallback(() => {
+    api.loadReport();
     if (api.clientId.trim() && api.apiKey.trim()) {
       perfApi.loadFromAnalytics(api.clientId, api.apiKey, api.dateFrom, api.dateTo);
     }
