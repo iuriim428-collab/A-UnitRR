@@ -17,7 +17,7 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 const daysAgo = (d: number) => new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
 
 type Marketplace = "wb" | "ozon" | "ym";
-type PeriodMode = "today" | "custom";
+type PeriodMode = "today" | "yesterday" | "custom";
 
 interface Order {
   id: string | number;
@@ -130,8 +130,8 @@ export default function OrdersFeed() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const effectiveFrom = mode === "today" ? todayStr() : appliedFrom;
-  const effectiveTo = mode === "today" ? todayStr() : appliedTo;
+  const effectiveFrom = mode === "today" ? todayStr() : mode === "yesterday" ? daysAgo(1) : appliedFrom;
+  const effectiveTo = mode === "today" ? todayStr() : mode === "yesterday" ? daysAgo(1) : appliedTo;
 
   const { data, isLoading, isError, refetch, isFetching, dataUpdatedAt } = useQuery({
     queryKey: ["orders-feed", effectiveFrom, effectiveTo],
@@ -243,6 +243,16 @@ export default function OrdersFeed() {
               }`}
             >
               Сегодня
+            </button>
+            <button
+              onClick={() => setMode("yesterday")}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                mode === "yesterday"
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Вчера
             </button>
             <button
               onClick={() => setMode("custom")}
