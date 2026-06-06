@@ -17,15 +17,6 @@ localPort = 24526
 [services.development]
 run = "pnpm --filter @workspace/ozon-unit-economics run dev"
 
-[services.production]
-build = [ "pnpm", "--filter", "@workspace/ozon-unit-economics", "run", "build" ]
-publicDir = "artifacts/ozon-unit-economics/dist/public"
-serve = "static"
-
-[[services.production.rewrites]]
-from = "/*"
-to = "/index.html"
-
 [services.env]
 PORT = "24526"
 BASE_PATH = "/"
