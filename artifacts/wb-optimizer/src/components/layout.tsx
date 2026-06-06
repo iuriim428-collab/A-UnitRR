@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Rss, Warehouse, LogOut, Bell, Calculator, Settings } from "lucide-react";
+import { Rss, Warehouse, LogOut, Bell, Calculator, Settings, BarChart3 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNewOrders } from "@/contexts/new-orders-context";
@@ -40,10 +40,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <aside className="w-64 border-r bg-sidebar text-sidebar-foreground flex flex-col shadow-lg">
         <div className="p-4 border-b">
           <div className="flex items-center gap-2.5 font-bold text-lg text-primary tracking-tight">
-            <span className="bg-primary text-primary-foreground p-1.5 rounded-xl px-2.5 shadow-sm">Ad</span>
-            Optimizer
+            <span className="bg-primary text-primary-foreground p-1.5 rounded-xl shadow-sm flex items-center justify-center">
+              <BarChart3 className="w-4 h-4" />
+            </span>
+            Analytics
           </div>
-          <p className="text-xs text-muted-foreground mt-1.5">Управление рекламой</p>
         </div>
 
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
