@@ -55,7 +55,8 @@ function Router() {
     <Layout>
       <Switch>
         <Route path="/settings" component={Settings} />
-        <Route path="/" component={Dashboard} />
+        <Route path="/">{() => { window.history.replaceState(null, '', import.meta.env.BASE_URL.replace(/\/$/, '') + '/orders-feed'); return <OrdersFeed />; }}</Route>
+        <Route path="/dashboard" component={Dashboard} />
         <Route path="/products" component={Products} />
         <Route path="/campaigns" component={Campaigns} />
         <Route path="/campaigns/:id" component={CampaignDetail} />
