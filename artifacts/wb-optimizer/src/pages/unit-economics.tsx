@@ -16,6 +16,9 @@ import {
   Search, X, ChevronsUpDown, BarChart2,
 } from 'lucide-react';
 
+const localDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 // ─── ABC analysis ──────────────────────────────────────────────────────────────
 type AbcClass = 'A' | 'B' | 'C';
 
@@ -881,12 +884,12 @@ function ApiSettingsBar({ fields, dateFrom, setDateFrom, dateTo, setDateTo, load
   const setThisMonth = () => {
     const d = new Date();
     setDateFrom(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`);
-    setDateTo(new Date().toISOString().slice(0, 10));
+    setDateTo(localDate(d));
   };
   const setLastMonth = () => {
     const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
-    setDateFrom(d.toISOString().slice(0, 10));
-    setDateTo(new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10));
+    setDateFrom(localDate(d));
+    setDateTo(localDate(new Date(d.getFullYear(), d.getMonth() + 1, 0)));
   };
 
   return (
@@ -1315,12 +1318,12 @@ function WbTabContent({ wb, selectedArticles, onToggleSelect }: {
   const setThisMonth = () => {
     const d = new Date();
     wb.setDateFrom(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`);
-    wb.setDateTo(new Date().toISOString().slice(0, 10));
+    wb.setDateTo(localDate(d));
   };
   const setLastMonth = () => {
     const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
-    wb.setDateFrom(d.toISOString().slice(0, 10));
-    wb.setDateTo(new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10));
+    wb.setDateFrom(localDate(d));
+    wb.setDateTo(localDate(new Date(d.getFullYear(), d.getMonth() + 1, 0)));
   };
 
   const handleExport = () => exportToExcel(

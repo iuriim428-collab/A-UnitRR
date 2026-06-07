@@ -7,7 +7,9 @@ export type FilterType = 'all' | 'profitable' | 'unprofitable';
 
 const DEFAULT_COST: SkuCost  = { costPerUnit: 0, vatRate: 0 };
 
-const todayStr      = () => new Date().toISOString().slice(0, 10);
+const localDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const todayStr = () => localDate(new Date());
 const firstOfMonth  = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;

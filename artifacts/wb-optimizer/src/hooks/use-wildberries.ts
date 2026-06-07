@@ -12,17 +12,19 @@ export type FilterType = 'all' | 'profitable' | 'unprofitable';
 
 const DEFAULT_COST: SkuCost = { costPerUnit: 0, vatRate: 0 };
 
-function todayStr() { return new Date().toISOString().slice(0, 10); }
+const localDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function todayStr() { return localDate(new Date()); }
 function firstOfLastMonthStr() {
   const d = new Date();
   d.setDate(1);
   d.setMonth(d.getMonth() - 1);
-  return d.toISOString().slice(0, 10);
+  return localDate(d);
 }
 function lastOfLastMonthStr() {
   const d = new Date();
   d.setDate(0); // last day of previous month
-  return d.toISOString().slice(0, 10);
+  return localDate(d);
 }
 
 const LS_TOKEN_KEY     = 'wb_api_token';
