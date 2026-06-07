@@ -1025,13 +1025,9 @@ function OzonTabContent({ mp, api, selectedArticles, onToggleSelect }: {
     return Object.values(perfApi.report.spendByArticle).reduce((s, v) => s + v, 0);
   }, [perfApi.report]);
 
-  // Load Seller report + Performance Analytics simultaneously
   const handleOzonLoad = useCallback(() => {
     api.loadReport();
-    if (api.clientId.trim() && api.apiKey.trim()) {
-      perfApi.loadFromAnalytics(api.clientId, api.apiKey, api.dateFrom, api.dateTo);
-    }
-  }, [api, perfApi]);
+  }, [api]);
 
   const mkExport = (prefix: string) => () => exportToExcel(
     active.calculatedRows.map(r => ({
