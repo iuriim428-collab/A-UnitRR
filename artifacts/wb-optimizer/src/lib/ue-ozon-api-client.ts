@@ -54,13 +54,14 @@ export interface OzonAccountTotals {
   agentServices: number;    // Партнёрские услуги (account-level)
   acquiring: number;
   otherExpenses: number;    // Подписка Premium Lite, прочее
+  otherRevenue: number;     // Начисление по спору и иные кредиты без привязки к SKU
 }
 
 export function emptyAccountTotals(): OzonAccountTotals {
   return {
     promotion: 0, deliveryServices: 0, logistics: 0, returnLogistics: 0,
     lastMile: 0, processing: 0, storage: 0, fboServices: 0,
-    agentServices: 0, acquiring: 0, otherExpenses: 0,
+    agentServices: 0, acquiring: 0, otherExpenses: 0, otherRevenue: 0,
   };
 }
 
@@ -214,8 +215,11 @@ export function parseOzonOperations(ops: OzonOperation[]): ParsedOzonResult {
         if (p === 0) continue;
 
         if (p > 0) {
-          // Positive account-level entries (bonuses, dispute credits, etc.)
-          // Not attributed to any SKU — skip for now (they're already in seller's accruals)
+          // Positive account-level entries: dispute credits, bonuses, etc.
+          // These are real revenue credited to seller — capture as otherRevenue
+          if (isRevenueService(svc.name ?? '')) {
+            at.otherRevenue += p;
+          }
           continue;
         }
 

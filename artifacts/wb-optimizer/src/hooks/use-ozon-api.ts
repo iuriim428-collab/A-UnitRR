@@ -63,6 +63,10 @@ export function useOzonApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
       // agentServices already includes acquiring as sub-item, so add non-acquiring part separately
       (at.agentServices - at.acquiring) + at.acquiring;
 
+    // otherRevenue: account-level credits (Начисление по спору, etc.) — increase profit
+    const accountRevenue = at.otherRevenue;
+    const netAccountAdjustment = accountCostTotal - accountRevenue;
+
     return {
       ...base,
       promotion:        base.promotion        + at.promotion,
@@ -76,11 +80,11 @@ export function useOzonApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
       agentServices:    base.agentServices    + at.agentServices,
       acquiring:        base.acquiring        + at.acquiring,
       otherExpenses:    base.otherExpenses    + at.otherExpenses,
-      // Account-level costs reduce overall profit
-      profitBeforeCosts: base.profitBeforeCosts - accountCostTotal,
-      netProfit:         base.netProfit         - accountCostTotal,
+      // Account-level costs reduce profit; account-level credits increase it
+      profitBeforeCosts: base.profitBeforeCosts - netAccountAdjustment,
+      netProfit:         base.netProfit         - netAccountAdjustment,
       marginPercent:     base.netSales > 0
-        ? ((base.netProfit - accountCostTotal) / base.netSales) * 100
+        ? ((base.netProfit - netAccountAdjustment) / base.netSales) * 100
         : 0,
     };
   }, [calculatedRows, accountTotals]);
