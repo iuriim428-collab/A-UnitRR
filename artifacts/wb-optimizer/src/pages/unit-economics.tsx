@@ -732,14 +732,35 @@ function ActionBar({ filter, setFilter, hasCosts, costsCount, onExport }: {
 }
 
 // ─── File bar (for file mode) ─────────────────────────────────────────────────
-function FileBar({ folderName, loadedFiles, onSelectFolder, onClear }: {
+function FileBar({ folderName, loadedFiles, onSelectFolder, onFilesFromFolder, onClear }: {
   folderName: string | null;
   loadedFiles: { name: string; rowCount: number; format: string; error?: string }[];
-  onSelectFolder: () => void; onClear: () => void;
+  onSelectFolder: () => Promise<void>;
+  onFilesFromFolder: (files: File[], name: string) => void;
+  onClear: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const folderRef = useRef<HTMLInputElement>(null);
   const good = loadedFiles.filter(f => !f.error);
   const bad  = loadedFiles.filter(f =>  f.error);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []).filter(f => /\.xlsx?$/i.test(f.name));
+    if (!files.length) { e.target.value = ''; return; }
+    const name = (files[0] as any).webkitRelativePath?.split('/')[0] ?? 'Папка';
+    onFilesFromFolder(files, name);
+    e.target.value = '';
+  };
+
+  const handleSwitch = async () => {
+    if (supportsFolderPicker()) {
+      try { await onSelectFolder(); return; } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+      }
+    }
+    folderRef.current?.click();
+  };
+
   return (
     <div className="sticky top-0 z-10 bg-card border-b border-border/50 text-[11px]">
       <div className="flex items-center gap-2 px-3 py-1.5">
@@ -750,11 +771,9 @@ function FileBar({ folderName, loadedFiles, onSelectFolder, onClear }: {
         </span>
         <button onClick={() => setExpanded(v => !v)} className="text-muted-foreground/60 hover:text-foreground">{expanded ? '▲' : '▼'}</button>
         <div className="flex-1" />
-        {supportsFolderPicker() && (
-          <button onClick={onSelectFolder} className="flex items-center gap-1 text-muted-foreground hover:text-foreground px-2 py-0.5 border border-border/50">
-            <RefreshCw className="w-3 h-3" /> Сменить
-          </button>
-        )}
+        <button onClick={handleSwitch} className="flex items-center gap-1 text-muted-foreground hover:text-foreground px-2 py-0.5 border border-border/50">
+          <RefreshCw className="w-3 h-3" /> Сменить
+        </button>
         <button onClick={onClear} className="flex items-center gap-1 text-muted-foreground hover:text-rose-500 px-2 py-0.5 border border-border/50">
           <Trash2 className="w-3 h-3" /> Очистить
         </button>
@@ -771,20 +790,45 @@ function FileBar({ folderName, loadedFiles, onSelectFolder, onClear }: {
           ))}
         </div>
       )}
+      <input ref={folderRef} type="file" accept=".xlsx,.xls" multiple
+        {...{ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>}
+        className="hidden" onChange={handleChange} />
     </div>
   );
 }
 
 // ─── Drop zone (for file mode, empty state) ───────────────────────────────────
-function DropZone({ kind, loading, error, onSelectFolder, onDropFiles }: {
+function DropZone({ kind, loading, error, onSelectFolder, onDropFiles, onFilesFromFolder }: {
   kind: MarketplaceKind; loading: boolean; error: string | null;
-  onSelectFolder: () => void; onDropFiles: (files: File[]) => void;
+  onSelectFolder: () => Promise<void>;
+  onDropFiles: (files: File[]) => void;
+  onFilesFromFolder: (files: File[], name: string) => void;
 }) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const label   = kind === 'ozon' ? 'Ozon' : 'Яндекс Маркет';
-  const fmts    = kind === 'ozon'
+  const fileRef   = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
+  const label = kind === 'ozon' ? 'Ozon' : 'Яндекс Маркет';
+  const fmts  = kind === 'ozon'
     ? '«Отчёт по начислениям» (Финансы → Начисления)\nОтчёт о реализации (новый и старый форматы)'
     : '«Отчёт о заказах» (united_orders_*.xlsx)';
+
+  const tryFolderPicker = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (supportsFolderPicker()) {
+      try { await onSelectFolder(); return; } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+        // Blocked (e.g. iframe) — fall through to webkitdirectory
+      }
+    }
+    folderRef.current?.click();
+  };
+
+  const handleFolderInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []).filter(f => /\.xlsx?$/i.test(f.name));
+    if (!files.length) { e.target.value = ''; return; }
+    const name = (files[0] as any).webkitRelativePath?.split('/')[0] ?? 'Папка';
+    onFilesFromFolder(files, name);
+    e.target.value = '';
+  };
 
   if (loading) return (
     <div className="flex-1 flex items-center justify-center">
@@ -797,30 +841,26 @@ function DropZone({ kind, loading, error, onSelectFolder, onDropFiles }: {
       <div className="border-2 border-dashed border-border/50 hover:border-primary/50 transition-colors rounded-sm p-10 text-center max-w-md w-full cursor-pointer"
         onDrop={e => { e.preventDefault(); const f = Array.from(e.dataTransfer.files).filter(f => /\.xlsx?$/i.test(f.name)); if (f.length) onDropFiles(f); }}
         onDragOver={e => e.preventDefault()}
-        onClick={() => supportsFolderPicker() ? onSelectFolder() : fileRef.current?.click()}>
+        onClick={tryFolderPicker}>
         <FolderOpen className="w-12 h-12 mx-auto mb-4 text-muted-foreground/30" />
-        {supportsFolderPicker() ? (
-          <>
-            <p className="text-base font-medium mb-1">Выберите папку {label}</p>
-            <p className="text-xs text-muted-foreground mb-3">Все .xlsx файлы в папке будут загружены и объединены</p>
-            <button onClick={e => { e.stopPropagation(); onSelectFolder(); }}
-              className="px-4 py-1.5 text-xs border border-primary text-primary hover:bg-primary hover:text-primary-foreground transition-colors mb-3">
-              <FolderOpen className="w-3.5 h-3.5 inline mr-1.5" />Выбрать папку
-            </button>
-            <p className="text-[10px] text-muted-foreground/50">или перетащите файлы сюда</p>
-          </>
-        ) : (
-          <>
-            <p className="text-base font-medium mb-1">Перетащите файлы {label}</p>
-            <button onClick={e => { e.stopPropagation(); fileRef.current?.click(); }}
-              className="px-4 py-1.5 text-xs border border-primary text-primary hover:bg-primary hover:text-primary-foreground transition-colors">
-              <Upload className="w-3.5 h-3.5 inline mr-1.5" />Выбрать файлы
-            </button>
-          </>
-        )}
+        <p className="text-base font-medium mb-1">Выберите папку {label}</p>
+        <p className="text-xs text-muted-foreground mb-3">Все .xlsx файлы в папке будут загружены и объединены</p>
+        <button onClick={tryFolderPicker}
+          className="px-4 py-1.5 text-xs border border-primary text-primary hover:bg-primary hover:text-primary-foreground transition-colors mb-3">
+          <FolderOpen className="w-3.5 h-3.5 inline mr-1.5" />Выбрать папку
+        </button>
+        <p className="text-[10px] text-muted-foreground/50">
+          или <button onClick={e => { e.stopPropagation(); fileRef.current?.click(); }}
+            className="underline hover:text-foreground">выберите файлы вручную</button> / перетащите
+        </p>
         <div className="mt-4 text-[10px] text-muted-foreground/50 whitespace-pre-line leading-relaxed">{fmts}</div>
         {error && <p className="mt-3 text-xs text-rose-600 border border-rose-200 bg-rose-50 rounded-xl px-3 py-2">{error}</p>}
       </div>
+      {/* Universal folder input (webkitdirectory) — fallback when showDirectoryPicker is blocked */}
+      <input ref={folderRef} type="file" accept=".xlsx,.xls" multiple
+        {...{ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>}
+        className="hidden" onChange={handleFolderInput} />
+      {/* Individual file input */}
       <input ref={fileRef} type="file" accept=".xlsx,.xls" multiple className="hidden"
         onChange={e => { const f = Array.from(e.target.files ?? []); if (f.length) onDropFiles(f); e.target.value = ''; }} />
     </div>
@@ -1017,8 +1057,11 @@ function OzonTabContent({ mp, api, selectedArticles, onToggleSelect }: {
   const perfDateTo   = api.dateTo;
 
   const handleSelectFolder = async () => {
-    try { const h = await pickFolder(); if (h) await mp.loadFolder(h); } catch {}
+    const h = await pickFolder(); // AbortError → null (cancelled); SecurityError propagates → caller falls back
+    if (h) await mp.loadFolder(h);
   };
+
+  const handleFilesFromFolder = (files: File[], name: string) => mp.addFilesWithFolderName(files, name);
 
   const perfTotal = useMemo(() => {
     if (!perfApi.report) return undefined;
@@ -1104,7 +1147,7 @@ function OzonTabContent({ mp, api, selectedArticles, onToggleSelect }: {
 
             {mode === 'files' && (
               <FileBar folderName={mp.folderName} loadedFiles={mp.loadedFiles}
-                onSelectFolder={handleSelectFolder} onClear={mp.clear} />
+                onSelectFolder={handleSelectFolder} onFilesFromFolder={handleFilesFromFolder} onClear={mp.clear} />
             )}
 
             <ActionBar filter={active.filter} setFilter={active.setFilter}
@@ -1132,7 +1175,7 @@ function OzonTabContent({ mp, api, selectedArticles, onToggleSelect }: {
         ) : (
           mode === 'files'
             ? <DropZone kind="ozon" loading={mp.loading} error={mp.error}
-                onSelectFolder={handleSelectFolder} onDropFiles={mp.addFiles} />
+                onSelectFolder={handleSelectFolder} onDropFiles={mp.addFiles} onFilesFromFolder={handleFilesFromFolder} />
             : !api.loading && (
               <ApiEmptyState
                 icon={<Key className="w-6 h-6 text-blue-400" />}
@@ -1190,8 +1233,11 @@ function YmTabContent({ mp, api, selectedArticles, onToggleSelect }: {
   }, [active.calculatedRows, adSpend]);
 
   const handleSelectFolder = async () => {
-    try { const h = await pickFolder(); if (h) await mp.loadFolder(h); } catch {}
+    const h = await pickFolder();
+    if (h) await mp.loadFolder(h);
   };
+
+  const handleFilesFromFolder = (files: File[], name: string) => mp.addFilesWithFolderName(files, name);
 
   const mkExport = () => exportToExcel(
     active.calculatedRows.map(r => ({
@@ -1251,7 +1297,7 @@ function YmTabContent({ mp, api, selectedArticles, onToggleSelect }: {
             </div>
             {mode === 'files' && (
               <FileBar folderName={mp.folderName} loadedFiles={mp.loadedFiles}
-                onSelectFolder={handleSelectFolder} onClear={mp.clear} />
+                onSelectFolder={handleSelectFolder} onFilesFromFolder={handleFilesFromFolder} onClear={mp.clear} />
             )}
             <ActionBar filter={active.filter} setFilter={active.setFilter}
               hasCosts={active.hasCosts} costsCount={Object.keys(active.costs).length}
@@ -1267,7 +1313,7 @@ function YmTabContent({ mp, api, selectedArticles, onToggleSelect }: {
         ) : (
           mode === 'files'
             ? <DropZone kind="yandex" loading={mp.loading} error={mp.error}
-                onSelectFolder={handleSelectFolder} onDropFiles={mp.addFiles} />
+                onSelectFolder={handleSelectFolder} onDropFiles={mp.addFiles} onFilesFromFolder={handleFilesFromFolder} />
             : !api.loading && (
               <ApiEmptyState
                 icon={<Key className="w-6 h-6 text-amber-500" />}

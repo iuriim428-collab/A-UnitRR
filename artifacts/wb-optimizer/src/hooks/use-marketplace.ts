@@ -113,6 +113,12 @@ export function useMarketplace(kind: MarketplaceKind, sharedTax: TaxSettings, se
     await processFiles(files.map(f => ({ name: f.name, file: f })));
   }, [processFiles]);
 
+  /** Like addFiles but also records the folder name (for webkitdirectory fallback). */
+  const addFilesWithFolderName = useCallback(async (files: File[], name: string) => {
+    setFolderName(name);
+    await processFiles(files.map(f => ({ name: f.name, file: f })));
+  }, [processFiles]);
+
   const clear = useCallback(() => {
     setRows([]);
     setCosts({});
@@ -138,6 +144,7 @@ export function useMarketplace(kind: MarketplaceKind, sharedTax: TaxSettings, se
     hasCosts: Object.keys(costs).length > 0,
     loadFolder,
     addFiles,
+    addFilesWithFolderName,
     clear,
     updateCost,
   };
