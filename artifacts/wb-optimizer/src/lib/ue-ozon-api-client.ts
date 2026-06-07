@@ -172,12 +172,14 @@ function classifyService(name: string): ServiceField {
 }
 
 // ─── Revenue service names (positive services that increase seller revenue) ───
+// NOTE: 'возврат вознаграждения' is NOT here — commission refunds are handled via
+// sale_commission on regular returns. On combined ops (accruals=0, commission=0)
+// we reduce ozonCommission directly in the services loop below.
 const REVENUE_SERVICE_KEYWORDS = [
   'баллы за скидки',
   'программы партнёров',
   'программы партнеров',
   'начисление по спору',
-  'возврат вознаграждения',
 ];
 
 function isRevenueService(name: string): boolean {
@@ -287,15 +289,20 @@ export function parseOzonOperations(ops: OzonOperation[]): ParsedOzonResult {
         const svcName = svc.name ?? '';
 
         if (p > 0) {
-          // Positive services = additional revenue from Ozon to the seller:
-          //   • "Баллы за скидки" — Ozon compensates seller for loyalty discounts
-          //   • "Программы партнёров" — program bonuses
-          //   • "Начисление по спору" — dispute resolution credit
-          //   • "Возврат вознаграждения" — commission refund on return
+          // Positive services:
+          //   • Revenue services (Баллы за скидки, Программы партнёров, Начисление по спору)
+          //     → add to ordersSum
+          //   • "Возврат вознаграждения" — commission refund:
+          //     - On regular returns: already handled via sale_commission → skip to avoid double-count
+          //     - On combined ops (sale+return in one op, commission=0): reduce ozonCommission
+          //   • All other positive entries: skip
           if (isRevenueService(svcName)) {
-            r.ordersSum += p / n;   // adds to gross revenue, netSales will reflect it
+            r.ordersSum += p / n;
+          } else if (svcName.toLowerCase().includes('возврат вознаграждения') && commission === 0) {
+            // Combined op: "Вознаграждение за продажу" charged via services, refund also via services
+            r.ozonCommission = Math.max(0, r.ozonCommission - p / n);
           }
-          continue;  // other positive services: skip
+          continue;
         }
 
         const cost  = Math.abs(p) / n;
