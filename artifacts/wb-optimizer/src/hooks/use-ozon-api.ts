@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { OzonReportRow, SkuCost, TaxSettings, CalculatedRow, ReportSummary } from '@/types';
-import { fetchOzonReport, parseOzonOperations } from '@/lib/ue-ozon-api-client';
+import { fetchOzonReport, parseOzonOperations, OzonAccountTotals, emptyAccountTotals } from '@/lib/ue-ozon-api-client';
 import { calcRow, calcSummary } from '@/lib/ue-calculator';
 
 export type FilterType = 'all' | 'profitable' | 'unprofitable';
@@ -20,12 +20,13 @@ function loadCosts(): Record<string, SkuCost> {
 }
 
 export function useOzonApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
-  const [rows,     setRows]    = useState<OzonReportRow[]>([]);
-  const [costs,    setCosts]   = useState<Record<string, SkuCost>>(loadCosts);
-  const [filter,   setFilter]  = useState<FilterType>('all');
-  const [loading,  setLoading] = useState(false);
-  const [error,    setError]   = useState<string | null>(null);
-  const [opCount,  setOpCount] = useState<number | null>(null);
+  const [rows,          setRows]          = useState<OzonReportRow[]>([]);
+  const [accountTotals, setAccountTotals] = useState<OzonAccountTotals>(emptyAccountTotals);
+  const [costs,         setCosts]         = useState<Record<string, SkuCost>>(loadCosts);
+  const [filter,        setFilter]        = useState<FilterType>('all');
+  const [loading,       setLoading]       = useState(false);
+  const [error,         setError]         = useState<string | null>(null);
+  const [opCount,       setOpCount]       = useState<number | null>(null);
 
   const [clientId, setClientIdState] = useState(() => localStorage.getItem(LS('client_id')) ?? '');
   const [apiKey,   setApiKeyState]   = useState(() => localStorage.getItem(LS('api_key'))   ?? '');
@@ -49,7 +50,38 @@ export function useOzonApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
       }),
   [rows, costs, tax, filter]);
 
-  const summary = useMemo((): ReportSummary => calcSummary(calculatedRows), [calculatedRows]);
+  // Summary = per-SKU totals + account-level costs (ads, subscription, cross-docking, etc.)
+  const summary = useMemo((): ReportSummary => {
+    const base = calcSummary(calculatedRows);
+
+    const at = accountTotals;
+    const accountCostTotal =
+      at.promotion + at.deliveryServices + at.storage +
+      at.fboServices + at.otherExpenses +
+      // agentServices already includes acquiring as sub-item, so add non-acquiring part separately
+      (at.agentServices - at.acquiring) + at.acquiring;
+
+    return {
+      ...base,
+      promotion:        base.promotion        + at.promotion,
+      deliveryServices: base.deliveryServices + at.deliveryServices,
+      logistics:        base.logistics        + at.logistics,
+      returnLogistics:  base.returnLogistics  + at.returnLogistics,
+      lastMile:         base.lastMile         + at.lastMile,
+      processing:       base.processing       + at.processing,
+      storage:          base.storage          + at.storage,
+      fboServices:      base.fboServices      + at.fboServices,
+      agentServices:    base.agentServices    + at.agentServices,
+      acquiring:        base.acquiring        + at.acquiring,
+      otherExpenses:    base.otherExpenses    + at.otherExpenses,
+      // Account-level costs reduce overall profit
+      profitBeforeCosts: base.profitBeforeCosts - accountCostTotal,
+      netProfit:         base.netProfit         - accountCostTotal,
+      marginPercent:     base.netSales > 0
+        ? ((base.netProfit - accountCostTotal) / base.netSales) * 100
+        : 0,
+    };
+  }, [calculatedRows, accountTotals]);
 
   const updateCost = useCallback((article: string, field: keyof SkuCost, value: number) => {
     setCosts(prev => ({ ...prev, [article]: { ...(prev[article] ?? DEFAULT_COST), [field]: value } }));
@@ -61,14 +93,15 @@ export function useOzonApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
     setLoading(true); setError(null);
     try {
       const ops    = await fetchOzonReport(clientId.trim(), apiKey.trim(), dateFrom, dateTo);
-      const parsed = parseOzonOperations(ops);
+      const { rows: parsed, accountTotals: at } = parseOzonOperations(ops);
       setRows(parsed);
-      // Do NOT reset costs — they persist across reloads
+      setAccountTotals(at);
       setOpCount(ops.length);
       if (parsed.length === 0) setError('Нет данных за выбранный период');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка загрузки');
       setRows([]);
+      setAccountTotals(emptyAccountTotals());
     } finally {
       setLoading(false);
     }
@@ -76,10 +109,11 @@ export function useOzonApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
 
   const clear = useCallback(() => {
     setRows([]); setCosts({}); setError(null); setOpCount(null); setFilter('all');
+    setAccountTotals(emptyAccountTotals());
   }, []);
 
   return {
-    rows, calculatedRows, summary, costs,
+    rows, calculatedRows, summary, costs, accountTotals,
     tax, setTax, filter, setFilter,
     loading, error, opCount,
     hasCosts: Object.keys(costs).length > 0,

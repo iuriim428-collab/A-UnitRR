@@ -4,12 +4,17 @@
  *
  * Real Ozon v3 API structure (confirmed from live responses):
  *  - items[]: only { name, sku } — NO offer_id, count, or price per item!
- *  - accruals_for_sale: total gross revenue for the whole operation (>0 sale, <0 return, 0 service)
- *  - sale_commission: total commission (<0 charged, 0 for service ops)
- *  - services[]: individual fee breakdown with signed prices
+ *  - accruals_for_sale: "Выручка" — what the buyer actually paid (>0 sale, <0 return, 0 service)
+ *  - sale_commission: Вознаграждение за продажу (<0 charged, 0 for service ops)
+ *  - services[]: individual fee/income breakdown with signed prices
+ *    • Negative price = cost to seller (Логистика, Эквайринг, etc.)
+ *    • Positive price = income from Ozon (Баллы за скидки, Программы партнёров, etc.)
  *
  * Strategy: use sku as article key; distribute amounts equally across items in
  * the same operation (no per-item prices available in v3).
+ *
+ * Account-level operations (no items[], e.g. рекламные расходы, Подписка) are
+ * collected into OzonAccountTotals and must be included in the summary separately.
  */
 import { OzonReportRow } from '../types';
 
@@ -20,8 +25,8 @@ export interface OzonOperation {
   operation_type_name?: string;
   operation_date?: string;
   amount?: number;              // net (after all deductions)
-  accruals_for_sale?: number;   // gross sale revenue (>0 sale, <0 return, 0 service)
-  sale_commission?: number;     // commission (<0 cost to seller, 0 service ops)
+  accruals_for_sale?: number;   // "Выручка" — buyer payment (>0 sale, <0 return, 0 service)
+  sale_commission?: number;     // Вознаграждение за продажу (<0 cost, positive on return refund)
   delivery_charge?: number;
   return_delivery_charge?: number;
   type?: string;
@@ -29,12 +34,40 @@ export interface OzonOperation {
   items?: Array<{
     name?: string;
     sku?: number;
-    // offer_id, count, price are NOT returned in v3 transactions API
   }>;
   services?: Array<{
     name?: string;
-    price?: number;   // <0 cost to seller, >0 income
+    price?: number;   // <0 cost to seller, >0 income (Баллы за скидки, etc.)
   }>;
+}
+
+// ─── Account-level totals (operations without items[]) ───────────────────────
+export interface OzonAccountTotals {
+  promotion: number;        // Оплата за клик, Продвижение с оплатой за заказ
+  deliveryServices: number; // Кросс-докинг, Перемещения — total delivery superset
+  logistics: number;        // sub-total of deliveryServices
+  returnLogistics: number;
+  lastMile: number;
+  processing: number;
+  storage: number;          // Размещение на складе (account-level)
+  fboServices: number;      // Обработка возвратов, Бронирование, etc.
+  agentServices: number;    // Партнёрские услуги (account-level)
+  acquiring: number;
+  otherExpenses: number;    // Подписка Premium Lite, прочее
+}
+
+export function emptyAccountTotals(): OzonAccountTotals {
+  return {
+    promotion: 0, deliveryServices: 0, logistics: 0, returnLogistics: 0,
+    lastMile: 0, processing: 0, storage: 0, fboServices: 0,
+    agentServices: 0, acquiring: 0, otherExpenses: 0,
+  };
+}
+
+// ─── Parse result ─────────────────────────────────────────────────────────────
+export interface ParsedOzonResult {
+  rows: OzonReportRow[];
+  accountTotals: OzonAccountTotals;
 }
 
 // ─── Fetch ────────────────────────────────────────────────────────────────────
@@ -72,25 +105,77 @@ type ServiceField = keyof Pick<
 
 function classifyService(name: string): ServiceField {
   const n = name.toLowerCase();
-  if (n.includes('commission') || n.includes('itemcommission'))           return 'ozonCommission';
-  if (n.includes('marketing') || n.includes('promo') ||
-      n.includes('boost')     || n.includes('advert') ||
-      n.includes('review'))                                               return 'promotion';
-  if (n.includes('acquiring') || n.includes('installment') ||
-      n.includes('credit'))                                               return 'acquiring';
-  if (n.includes('storage') || n.includes('хранение'))                   return 'storage';
-  if (n.includes('accept') || n.includes('dropoff') ||
-      n.includes('handover'))                                             return 'processing';
-  if ((n.includes('return') || n.includes('возврат')) &&
-      (n.includes('logistic') || n.includes('cargo') ||
-       n.includes('delivery') || n.includes('trans')))                   return 'returnLogistics';
+
+  // Commission (en + ru)
+  if (n.includes('commission') || n.includes('itemcommission') ||
+      n.includes('вознаграждение за продажу') || n.includes('вознаграждение ozon'))
+    return 'ozonCommission';
+
+  // Promotion / advertising (en + ru)
+  if (n.includes('marketing') || n.includes('promo') || n.includes('boost') ||
+      n.includes('advert') || n.includes('review') ||
+      n.includes('оплата за клик') || n.includes('продвижение'))
+    return 'promotion';
+
+  // Acquiring / payments (en + ru)
+  if (n.includes('acquiring') || n.includes('installment') || n.includes('credit') ||
+      n.includes('эквайринг'))
+    return 'acquiring';
+
+  // Storage (en + ru)
+  if (n.includes('storage') || n.includes('хранение') ||
+      n.includes('размещение на складе') || n.includes('временное размещение'))
+    return 'storage';
+
+  // Processing / drop-off (en + ru)
+  if (n.includes('accept') || n.includes('dropoff') || n.includes('handover') ||
+      n.includes('drop-off') || n.includes('обработка отправления'))
+    return 'processing';
+
+  // Return logistics (en + ru — must check before general logistics)
+  if ((n.includes('return') || n.includes('обратная') || n.includes('возврат')) &&
+      (n.includes('logistic') || n.includes('cargo') || n.includes('delivery') ||
+       n.includes('trans') || n.includes('логистик')))
+    return 'returnLogistics';
+
+  // Last mile / pickup point (en + ru)
   if (n.includes('lastmile') || n.includes('last_mile') ||
-      n.includes('pvz')       || n.includes('postamat'))                 return 'lastMile';
-  if (n.includes('logistic') || n.includes('cargo') ||
-      n.includes('delivery')  || n.includes('trans'))                    return 'logistics';
-  if (n.includes('fbo') || n.includes('fbs') ||
-      n.includes('wms')  || n.includes('fulfil'))                        return 'fboServices';
+      n.includes('pvz') || n.includes('postamat') ||
+      n.includes('доставка до места выдачи'))
+    return 'lastMile';
+
+  // General logistics / delivery / cross-docking / movements (en + ru)
+  if (n.includes('logistic') || n.includes('cargo') || n.includes('delivery') ||
+      n.includes('trans') || n.includes('логистика') || n.includes('кросс') ||
+      n.includes('перемещение') || n.includes('вывоз товара'))
+    return 'logistics';
+
+  // FBO / partner fulfilment services (en + ru)
+  if (n.includes('fbo') || n.includes('fbs') || n.includes('wms') || n.includes('fulfil') ||
+      n.includes('обработка') || n.includes('упаковк') || n.includes('брониров') ||
+      n.includes('подготовк') || n.includes('обеспечение материалами'))
+    return 'fboServices';
+
+  // Partner/agent services
+  if (n.includes('партнёр') || n.includes('партнер') || n.includes('realfbs') ||
+      n.includes('агентск'))
+    return 'agentServices';
+
   return 'otherExpenses';
+}
+
+// ─── Revenue service names (positive services that increase seller revenue) ───
+const REVENUE_SERVICE_KEYWORDS = [
+  'баллы за скидки',
+  'программы партнёров',
+  'программы партнеров',
+  'начисление по спору',
+  'возврат вознаграждения',
+];
+
+function isRevenueService(name: string): boolean {
+  const n = name.toLowerCase();
+  return REVENUE_SERVICE_KEYWORDS.some(kw => n.includes(kw));
 }
 
 function blankRow(article: string, name: string): OzonReportRow {
@@ -108,23 +193,61 @@ function blankRow(article: string, name: string): OzonReportRow {
 }
 
 // ─── Parser ───────────────────────────────────────────────────────────────────
-export function parseOzonOperations(ops: OzonOperation[]): OzonReportRow[] {
+export function parseOzonOperations(ops: OzonOperation[]): ParsedOzonResult {
   const acc: Record<string, OzonReportRow> = {};
+  const at = emptyAccountTotals();
 
   for (const op of ops) {
     const items    = op.items ?? [];
     const services = op.services ?? [];
-    if (items.length === 0) continue;
 
-    const accrual    = op.accruals_for_sale ?? 0;  // gross revenue (signed)
-    const commission = op.sale_commission   ?? 0;  // commission (negative = cost)
+    const accrual    = op.accruals_for_sale ?? 0;  // "Выручка" — buyer payment (signed)
+    const commission = op.sale_commission   ?? 0;  // Вознаграждение (negative = cost)
 
-    // Classify operation from accruals_for_sale — the clearest signal in v3:
-    //   > 0 → sale, < 0 → return, = 0 → service charge
+    // ── Operations WITHOUT items → account-level costs ──────────────────────
+    if (items.length === 0) {
+      // Commission at account level (rare but possible)
+      if (commission < 0) at.otherExpenses += Math.abs(commission);
+
+      for (const svc of services) {
+        const p = svc.price ?? 0;
+        if (p === 0) continue;
+
+        if (p > 0) {
+          // Positive account-level entries (bonuses, dispute credits, etc.)
+          // Not attributed to any SKU — skip for now (they're already in seller's accruals)
+          continue;
+        }
+
+        const cost  = Math.abs(p);
+        const field = classifyService(svc.name ?? '');
+
+        if (field === 'logistics' || field === 'returnLogistics' ||
+            field === 'lastMile'  || field === 'processing') {
+          at.deliveryServices += cost;
+          at[field]           += cost;
+        } else if (field === 'acquiring') {
+          at.agentServices += cost;
+          at.acquiring     += cost;
+        } else if (field === 'promotion') {
+          at.promotion += cost;
+        } else if (field === 'storage') {
+          at.storage += cost;
+        } else if (field === 'fboServices') {
+          at.fboServices += cost;
+        } else if (field === 'agentServices') {
+          at.agentServices += cost;
+        } else {
+          // ozonCommission, otherExpenses
+          at.otherExpenses += cost;
+        }
+      }
+      continue;
+    }
+
+    // ── Operations WITH items → per-SKU attribution ─────────────────────────
     const isSale   = accrual > 0;
     const isReturn = accrual < 0;
-
-    // Equal split across all items in this operation (no per-item prices in v3)
     const n = items.length;
 
     for (const item of items) {
@@ -133,25 +256,40 @@ export function parseOzonOperations(ops: OzonOperation[]): OzonReportRow[] {
       const r = acc[article];
       if (!r.name && item.name) r.name = item.name;
 
+      // ── Revenue / returns ────────────────────────────────────────────────
       if (isSale) {
-        r.ordersCount    += 1;               // count as 1 posting per SKU
+        r.ordersCount    += 1;
         r.salesCount     += 1;
-        r.ordersSum      += accrual / n;
+        r.ordersSum      += accrual / n;         // "Выручка" portion
         r.ozonCommission += Math.abs(commission) / n;
       } else if (isReturn) {
         r.returnsCount   += 1;
         r.returnsSum     += Math.abs(accrual) / n;
-        // Commission is refunded on returns (sale_commission may be 0 or positive here)
+        // Commission refunded on returns (commission will be 0 or positive here)
         r.ozonCommission -= Math.abs(commission) / n;
       }
-      // Service operations (accrual = 0): only services[] matter below
 
-      // Attribute service costs (only negative prices = charged to seller)
+      // ── Services ─────────────────────────────────────────────────────────
       for (const svc of services) {
         const p = svc.price ?? 0;
-        if (p >= 0) continue;                  // positive = seller income, skip
+        if (p === 0) continue;
+
+        const svcName = svc.name ?? '';
+
+        if (p > 0) {
+          // Positive services = additional revenue from Ozon to the seller:
+          //   • "Баллы за скидки" — Ozon compensates seller for loyalty discounts
+          //   • "Программы партнёров" — program bonuses
+          //   • "Начисление по спору" — dispute resolution credit
+          //   • "Возврат вознаграждения" — commission refund on return
+          if (isRevenueService(svcName)) {
+            r.ordersSum += p / n;   // adds to gross revenue, netSales will reflect it
+          }
+          continue;  // other positive services: skip
+        }
+
         const cost  = Math.abs(p) / n;
-        const field = classifyService(svc.name ?? '');
+        const field = classifyService(svcName);
 
         if (field === 'ozonCommission') {
           r.ozonCommission += cost;
@@ -162,6 +300,8 @@ export function parseOzonOperations(ops: OzonOperation[]): OzonReportRow[] {
         } else if (field === 'acquiring') {
           r.agentServices += cost;
           r.acquiring     += cost;
+        } else if (field === 'agentServices') {
+          r.agentServices += cost;
         } else {
           // storage, fboServices, promotion, otherExpenses
           r[field] += cost;
@@ -170,18 +310,19 @@ export function parseOzonOperations(ops: OzonOperation[]): OzonReportRow[] {
     }
   }
 
-  // Finalize
+  // ── Finalize per-SKU rows ─────────────────────────────────────────────────
   for (const r of Object.values(acc)) {
     r.netSales = r.ordersSum - r.returnsSum;
-    if (r.ozonCommission < 0) r.ozonCommission = 0;  // edge-case: refunded more than charged
+    if (r.ozonCommission < 0) r.ozonCommission = 0;
   }
 
-  // Include any row with meaningful data (sales, returns, OR any expense)
-  return Object.values(acc).filter(r =>
+  const rows = Object.values(acc).filter(r =>
     r.ordersCount  > 0 || r.returnsCount   > 0 ||
     r.ozonCommission > 0 || r.deliveryServices > 0 ||
     r.storage      > 0 || r.agentServices   > 0 ||
     r.promotion    > 0 || r.fboServices     > 0 ||
     r.otherExpenses > 0
   );
+
+  return { rows, accountTotals: at };
 }
