@@ -1027,7 +1027,10 @@ function OzonTabContent({ mp, api, selectedArticles, onToggleSelect }: {
 
   const handleOzonLoad = useCallback(() => {
     api.loadReport();
-  }, [api]);
+    if (api.clientId.trim() && api.apiKey.trim()) {
+      perfApi.loadFromAnalytics(api.clientId, api.apiKey, api.dateFrom, api.dateTo);
+    }
+  }, [api, perfApi]);
 
   const mkExport = (prefix: string) => () => exportToExcel(
     active.calculatedRows.map(r => ({
