@@ -107,6 +107,11 @@ type ServiceField = keyof Pick<
 function classifyService(name: string): ServiceField {
   const n = name.toLowerCase();
 
+  // Agent / aggregator fee must be checked BEFORE generic commission to avoid false match
+  // e.g. "Агентское вознаграждение Ozon Агрегатор realFBS" contains "вознаграждение ozon"
+  if (n.includes('агентское вознаграждение') || n.includes('агентск'))
+    return 'agentServices';
+
   // Commission (en + ru)
   if (n.includes('commission') || n.includes('itemcommission') ||
       n.includes('вознаграждение за продажу') || n.includes('вознаграждение ozon'))
@@ -154,7 +159,8 @@ function classifyService(name: string): ServiceField {
   // FBO / partner fulfilment services (en + ru)
   if (n.includes('fbo') || n.includes('fbs') || n.includes('wms') || n.includes('fulfil') ||
       n.includes('обработка') || n.includes('упаковк') || n.includes('брониров') ||
-      n.includes('подготовк') || n.includes('обеспечение материалами'))
+      n.includes('подготовк') || n.includes('обеспечение материалами') ||
+      n.includes('отгрузка в нерекомендованный'))
     return 'fboServices';
 
   // Partner/agent services
