@@ -1070,10 +1070,10 @@ function OzonTabContent({ mp, api, selectedArticles, onToggleSelect }: {
 
   const handleOzonLoad = useCallback(() => {
     api.loadReport();
-    if (api.clientId.trim() && api.apiKey.trim()) {
-      perfApi.loadFromAnalytics(api.clientId, api.apiKey, api.dateFrom, api.dateTo);
-    }
-  }, [api, perfApi]);
+    // Note: loadFromAnalytics (adv_sum) is no longer auto-triggered here because
+    // Ozon Analytics API does not support advertising metrics for the sku dimension.
+    // Use the Performance API section below to load campaign spend data.
+  }, [api]);
 
   const mkExport = (prefix: string) => () => exportToExcel(
     active.calculatedRows.map(r => ({
