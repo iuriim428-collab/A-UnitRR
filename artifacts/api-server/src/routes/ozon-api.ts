@@ -614,7 +614,7 @@ router.post("/ozon/performance-report", async (req, res) => {
  * Headers: X-Ozon-Client-Id, X-Ozon-Api-Key  (regular Seller API credentials)
  * Body: { dateFrom: "YYYY-MM-DD", dateTo: "YYYY-MM-DD" }
  *
- * Fetches per-SKU advertising spend from Ozon Analytics API (metric: adv_sum_all),
+ * Fetches per-SKU advertising spend from Ozon Analytics API (metric: adv_sum),
  * then resolves item_id → offer_id (article) via /v2/product/info/list.
  * Returns { spendByArticle: Record<string, number>, totalSpend: number, skuCount: number }
  */
@@ -636,7 +636,8 @@ router.post("/ozon/adv-spend-by-sku", async (req, res) => {
   req.log.info({ dateFrom, dateTo }, "adv-spend-by-sku fetch");
 
   try {
-    // Step 1: query Analytics API for adv_sum_all per SKU (paginated)
+    // Step 1: query Analytics API for adv_sum per SKU (paginated)
+    // Note: adv_sum_all was deprecated by Ozon; adv_sum is the current replacement.
     const allRows: Array<{ sku: string; spend: number }> = [];
     let offset = 0;
     const limit = 1000;
@@ -654,10 +655,10 @@ router.post("/ozon/adv-spend-by-sku", async (req, res) => {
           date_to:   dateTo,
           dimension: ["sku"],
           filters:   [],
-          metrics:   ["adv_sum_all"],
+          metrics:   ["adv_sum"],
           limit,
           offset,
-          sort: [{ key: "adv_sum_all", order: "DESC" }],
+          sort: [{ key: "adv_sum", order: "DESC" }],
         }),
         signal: AbortSignal.timeout(20_000),
       });

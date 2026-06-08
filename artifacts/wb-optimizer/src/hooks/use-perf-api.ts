@@ -190,7 +190,7 @@ export function usePerfApi() {
 
   /**
    * Load via Ozon Seller Analytics API — no extra credentials needed.
-   * Uses /api/ozon/adv-spend-by-sku which queries adv_sum_all per SKU.
+   * Uses /api/ozon/adv-spend-by-sku which queries adv_sum per SKU.
    */
   const loadFromAnalytics = useCallback(async (
     sellerClientId: string,
