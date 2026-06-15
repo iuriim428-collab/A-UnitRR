@@ -57,6 +57,7 @@ export function calcSummary(rows: CalculatedRow[]): ReportSummary {
     storage:          sum('storage'),
     fboServices:      sum('fboServices'),
     otherExpenses:    sum('otherExpenses'),
+    compensations:    0,  // account-level only; filled in by use-ozon-api summary
     profitBeforeCosts: sum('profitBeforeCosts'),
     costTotal:        sum('costTotal'),
     vatAmount:        sum('vatAmount'),

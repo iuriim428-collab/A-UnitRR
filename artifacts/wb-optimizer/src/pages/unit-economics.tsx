@@ -113,17 +113,18 @@ function SummarySidebar({ s, hasCosts, adSpend, setAdSpend, perfTotal, promotion
       <MetricRow label="Чистая выручка" value={formatCurrency(s.netSales)} />
 
       <SectionHdr>Расходы площадки</SectionHdr>
-      <MetricRow label="Комиссия"       value={`-${formatCurrency(s.ozonCommission)}`} />
-      {s.deliveryServices > 0 && <MetricRow label="Доставка итого"  value={`-${formatCurrency(s.deliveryServices)}`} />}
+      <MetricRow label="Комиссия Ozon"  value={`-${formatCurrency(s.ozonCommission)}`} />
+      {s.deliveryServices > 0 && <MetricRow label="Услуги доставки"  value={`-${formatCurrency(s.deliveryServices)}`} />}
       {s.logistics        > 0 && <MetricRow label="└ Логистика"      value={`-${formatCurrency(s.logistics)}`}        sub />}
-      {s.returnLogistics  > 0 && <MetricRow label="└ Обрат. лог."    value={`-${formatCurrency(s.returnLogistics)}`}  sub />}
+      {s.returnLogistics  > 0 && <MetricRow label="└ Обратная лог."  value={`-${formatCurrency(s.returnLogistics)}`}  sub />}
       {s.lastMile         > 0 && <MetricRow label="└ Последняя миля" value={`-${formatCurrency(s.lastMile)}`}         sub />}
+      <MetricRow label={promotionLabel ?? 'Продвижение и реклама'} value={s.promotion > 0 ? `-${formatCurrency(s.promotion)}` : '—'} />
+      {s.fboServices      > 0 && <MetricRow label="Услуги FBO"       value={`-${formatCurrency(s.fboServices)}`} />}
       {s.agentServices    > 0 && <MetricRow label="Услуги партнёров" value={`-${formatCurrency(s.agentServices)}`} />}
       {s.acquiring        > 0 && <MetricRow label="└ Эквайринг"      value={`-${formatCurrency(s.acquiring)}`}        sub />}
-      <MetricRow label={promotionLabel ?? 'Прод. на платформе'} value={s.promotion > 0 ? `-${formatCurrency(s.promotion)}` : '—'} />
-      {s.storage          > 0 && <MetricRow label="Хранение"          value={`-${formatCurrency(s.storage)}`} />}
-      {s.fboServices      > 0 && <MetricRow label="Прочие услуги"    value={`-${formatCurrency(s.fboServices)}`} />}
-      {s.otherExpenses    > 0 && <MetricRow label="Штрафы/прочее"    value={`-${formatCurrency(s.otherExpenses)}`} />}
+      {s.otherExpenses    > 0 && <MetricRow label="Другие услуги"    value={`-${formatCurrency(s.otherExpenses)}`} />}
+      {(s.compensations ?? 0) > 0 && <MetricRow label="Компенсации"  value={`+${formatCurrency(s.compensations)}`} />}
+      {s.storage          > 0 && <MetricRow label="Хранение"         value={`-${formatCurrency(s.storage)}`} />}
 
       <SectionHdr>До себестоимости</SectionHdr>
       <MetricRow label="Прибыль" value={formatCurrency(s.profitBeforeCosts)} accent={s.profitBeforeCosts > 0} />

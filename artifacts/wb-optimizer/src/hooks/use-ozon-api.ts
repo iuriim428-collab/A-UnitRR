@@ -80,6 +80,7 @@ export function useOzonApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
       agentServices:    base.agentServices    + at.agentServices,
       acquiring:        base.acquiring        + at.acquiring,
       otherExpenses:    base.otherExpenses    + at.otherExpenses,
+      compensations:    at.otherRevenue,   // Начисление по спору, etc. (shown as positive)
       // Account-level costs reduce profit; account-level credits increase it
       profitBeforeCosts: base.profitBeforeCosts - netAccountAdjustment,
       netProfit:         base.netProfit         - netAccountAdjustment,

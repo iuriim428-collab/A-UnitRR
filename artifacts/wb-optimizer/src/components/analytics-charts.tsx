@@ -46,15 +46,16 @@ interface WfPoint {
 
 function buildWaterfall(s: ReportSummary): WfPoint[] {
   const steps = [
-    { name: 'Выручка',      delta:  s.netSales },
-    { name: 'Комиссия',     delta: -s.ozonCommission },
-    { name: 'Доставка',     delta: -s.deliveryServices },
-    { name: 'Хранение',     delta: -(s.storage + s.fboServices) },
-    { name: 'Партнёры',     delta: -s.agentServices },
-    { name: 'Продвижение',  delta: -s.promotion },
-    { name: 'Прочее',       delta: -s.otherExpenses },
-    { name: 'Себест.',      delta: -s.costTotal },
-    { name: 'Налог',        delta: -s.taxAmount },
+    { name: 'Выручка',        delta:  s.netSales },
+    { name: 'Комиссия',       delta: -s.ozonCommission },
+    { name: 'Доставка',       delta: -s.deliveryServices },
+    { name: 'Продвижение',    delta: -s.promotion },
+    { name: 'Услуги FBO',     delta: -(s.storage + s.fboServices) },
+    { name: 'Партнёры',       delta: -s.agentServices },
+    { name: 'Другие услуги',  delta: -s.otherExpenses },
+    { name: 'Компенсации',    delta:  (s.compensations ?? 0) },
+    { name: 'Себест.',        delta: -s.costTotal },
+    { name: 'Налог',          delta: -s.taxAmount },
   ].filter(st => st.delta !== 0);
 
   const pts: WfPoint[] = [];

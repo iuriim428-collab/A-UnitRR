@@ -43,18 +43,18 @@ export interface OzonOperation {
 
 // ─── Account-level totals (operations without items[]) ───────────────────────
 export interface OzonAccountTotals {
-  promotion: number;        // Оплата за клик, Продвижение с оплатой за заказ
-  deliveryServices: number; // Кросс-докинг, Перемещения — total delivery superset
+  promotion: number;        // Продвижение и реклама (Оплата за клик, Подписка Premium Lite, etc.)
+  deliveryServices: number; // Услуги доставки total
   logistics: number;        // sub-total of deliveryServices
   returnLogistics: number;
   lastMile: number;
-  processing: number;
-  storage: number;          // Размещение на складе (account-level)
-  fboServices: number;      // Обработка возвратов, Бронирование, etc.
-  agentServices: number;    // Партнёрские услуги (account-level)
+  processing: number;       // Обработка отправления, Агентское вознаграждение Агрегатор
+  storage: number;          // unused after reclassification (kept for type compat)
+  fboServices: number;      // Услуги FBO: Кросс-докинг, Перемещения, Размещение, Вывоз, etc.
+  agentServices: number;    // Услуги партнёров: Эквайринг, Услуги Партнёров realFBS, etc.
   acquiring: number;
-  otherExpenses: number;    // Подписка Premium Lite, прочее
-  otherRevenue: number;     // Начисление по спору и иные кредиты без привязки к SKU
+  otherExpenses: number;    // Другие услуги и штрафы: Временное размещение в СЦ, Нерекомендованный
+  otherRevenue: number;     // Компенсации: Начисление по спору и иные кредиты
 }
 
 export function emptyAccountTotals(): OzonAccountTotals {
@@ -107,66 +107,71 @@ type ServiceField = keyof Pick<
 function classifyService(name: string): ServiceField {
   const n = name.toLowerCase();
 
-  // Agent / aggregator fee must be checked BEFORE generic commission to avoid false match
-  // e.g. "Агентское вознаграждение Ozon Агрегатор realFBS" contains "вознаграждение ozon"
-  if (n.includes('агентское вознаграждение') || n.includes('агентск'))
-    return 'agentServices';
+  // ① Агентское вознаграждение Ozon Агрегатор realFBS → Услуги доставки (as processing)
+  //    Must be checked BEFORE commission — name contains "вознаграждение ozon"
+  if (n.includes('агентское вознаграждение'))
+    return 'processing';
 
-  // Commission (en + ru)
+  // ② Ozon commission
   if (n.includes('commission') || n.includes('itemcommission') ||
       n.includes('вознаграждение за продажу') || n.includes('вознаграждение ozon'))
     return 'ozonCommission';
 
-  // Promotion / advertising (en + ru)
+  // ③ Продвижение и реклама — INCLUDING Подписка Premium Lite
   if (n.includes('marketing') || n.includes('promo') || n.includes('boost') ||
       n.includes('advert') || n.includes('review') ||
-      n.includes('оплата за клик') || n.includes('продвижение'))
+      n.includes('оплата за клик') || n.includes('продвижение') ||
+      n.includes('подписка'))
     return 'promotion';
 
-  // Acquiring / payments (en + ru)
+  // ④ Acquiring / payments
   if (n.includes('acquiring') || n.includes('installment') || n.includes('credit') ||
       n.includes('эквайринг'))
     return 'acquiring';
 
-  // Storage (en + ru)
-  if (n.includes('storage') || n.includes('хранение') ||
-      n.includes('размещение на складе') || n.includes('временное размещение'))
-    return 'storage';
+  // ⑤ Услуги партнёров — check BEFORE processing/fbo to catch:
+  //    "Обработка возвратов партнёрами", "Drop-off партнёрами",
+  //    "Упаковка партнёрами", "Временное размещение партнерами",
+  //    "Услуги Партнёров Ozon realFBS"
+  if (n.includes('партнёр') || n.includes('партнер') || n.includes('realfbs'))
+    return 'agentServices';
 
-  // Processing / drop-off (en + ru)
+  // ⑥ Услуги FBO (Ozon warehouse ops, NOT delivery):
+  //    Кросс-докинг, Перемещение складов, Вывоз товара, Размещение на складе,
+  //    Бронирование места, Подготовка товара к вывозу
+  if (n.includes('кросс') || n.includes('перемещение') || n.includes('вывоз товара') ||
+      n.includes('размещение на складе') || n.includes('брониров') || n.includes('подготовк') ||
+      n.includes('fbo') || n.includes('wms') || n.includes('fulfil'))
+    return 'fboServices';
+
+  // ⑦ Другие услуги и штрафы:
+  //    Временное размещение в СЦ/ПВЗ, Обеспечение материалами, Нерекомендованный слот
+  if (n.includes('хранение') || n.includes('временное размещение') ||
+      n.includes('обеспечение материалами') || n.includes('отгрузка в нерекомендованный'))
+    return 'otherExpenses';
+
+  // ⑧ Processing / drop-off at PVZ (Ozon-operated → Услуги доставки)
   if (n.includes('accept') || n.includes('dropoff') || n.includes('handover') ||
-      n.includes('drop-off') || n.includes('обработка отправления'))
+      n.includes('drop-off') || n.includes('обработка отправления') ||
+      n.includes('обработка') || n.includes('упаковк'))
     return 'processing';
 
-  // Return logistics (en + ru — must check before general logistics)
+  // ⑨ Return logistics — BEFORE general logistics
   if ((n.includes('return') || n.includes('обратная') || n.includes('возврат')) &&
       (n.includes('logistic') || n.includes('cargo') || n.includes('delivery') ||
        n.includes('trans') || n.includes('логистик')))
     return 'returnLogistics';
 
-  // Last mile / pickup point (en + ru)
+  // ⑩ Last mile / pickup point
   if (n.includes('lastmile') || n.includes('last_mile') ||
       n.includes('pvz') || n.includes('postamat') ||
       n.includes('доставка до места выдачи'))
     return 'lastMile';
 
-  // General logistics / delivery / cross-docking / movements (en + ru)
+  // ⑪ General logistics (Логистика FBO/FBS)
   if (n.includes('logistic') || n.includes('cargo') || n.includes('delivery') ||
-      n.includes('trans') || n.includes('логистика') || n.includes('кросс') ||
-      n.includes('перемещение') || n.includes('вывоз товара'))
+      n.includes('trans') || n.includes('логистика'))
     return 'logistics';
-
-  // FBO / partner fulfilment services (en + ru)
-  if (n.includes('fbo') || n.includes('fbs') || n.includes('wms') || n.includes('fulfil') ||
-      n.includes('обработка') || n.includes('упаковк') || n.includes('брониров') ||
-      n.includes('подготовк') || n.includes('обеспечение материалами') ||
-      n.includes('отгрузка в нерекомендованный'))
-    return 'fboServices';
-
-  // Partner/agent services
-  if (n.includes('партнёр') || n.includes('партнер') || n.includes('realfbs') ||
-      n.includes('агентск'))
-    return 'agentServices';
 
   return 'otherExpenses';
 }

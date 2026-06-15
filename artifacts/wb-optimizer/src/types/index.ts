@@ -70,6 +70,7 @@ export interface ReportSummary {
   storage: number;
   fboServices: number;
   otherExpenses: number;
+  compensations: number;    // Компенсации и декомпенсации (Начисление по спору, etc.)
   profitBeforeCosts: number;
   costTotal: number;
   vatAmount: number;
