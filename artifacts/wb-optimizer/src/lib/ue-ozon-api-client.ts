@@ -211,6 +211,9 @@ export function parseOzonOperations(ops: OzonOperation[]): ParsedOzonResult {
   const acc: Record<string, OzonReportRow> = {};
   const at = emptyAccountTotals();
 
+  // DEBUG — collect unique service names to diagnose classification
+  const svcNames = new Map<string, { count: number; totalCost: number; hasItems: boolean }>();
+
   for (const op of ops) {
     const items    = op.items ?? [];
     const services = op.services ?? [];
@@ -293,6 +296,14 @@ export function parseOzonOperations(ops: OzonOperation[]): ParsedOzonResult {
 
         const svcName = svc.name ?? '';
 
+        // DEBUG — track service names
+        const dbgKey = svcName || '(empty)';
+        const existing = svcNames.get(dbgKey) ?? { count: 0, totalCost: 0, hasItems: true };
+        existing.count++;
+        existing.totalCost += Math.abs(p);
+        existing.hasItems = true;
+        svcNames.set(dbgKey, existing);
+
         if (p > 0) {
           // Positive services:
           //   • Revenue services (Баллы за скидки, Программы партнёров, Начисление по спору)
@@ -345,6 +356,13 @@ export function parseOzonOperations(ops: OzonOperation[]): ParsedOzonResult {
     r.promotion    > 0 || r.fboServices     > 0 ||
     r.otherExpenses > 0
   );
+
+  // DEBUG — log all unique service names sorted by total cost
+  const svcList = Array.from(svcNames.entries())
+    .sort((a, b) => b[1].totalCost - a[1].totalCost)
+    .map(([name, d]) => `${d.totalCost.toFixed(0).padStart(8)} | ${d.count.toString().padStart(4)}x | [${classifyService(name)}] ${name}`);
+  console.log('[SvcNames] Total unique service names:', svcNames.size);
+  console.log('[SvcNames]\n' + svcList.join('\n'));
 
   return { rows, accountTotals: at };
 }
