@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { OzonReportRow, SkuCost, TaxSettings, CalculatedRow, ReportSummary } from '@/types';
-import { fetchOzonReport, parseOzonOperations, OzonAccountTotals, emptyAccountTotals } from '@/lib/ue-ozon-api-client';
+import { fetchOzonReport, fetchOzonRealization, parseOzonOperations, OzonAccountTotals, emptyAccountTotals } from '@/lib/ue-ozon-api-client';
 import { calcRow, calcSummary } from '@/lib/ue-calculator';
 
 export type FilterType = 'all' | 'profitable' | 'unprofitable';
@@ -119,7 +119,21 @@ export function useOzonApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
     if (!apiKey.trim())   { setError('Введите API-Key');   return; }
     setLoading(true); setError(null);
     try {
-      const ops    = await fetchOzonReport(clientId.trim(), apiKey.trim(), dateFrom, dateTo);
+      // Parse dateFrom to get month/year for realization report
+      const [yearStr, monthStr] = dateFrom.split('-');
+      const realizMonth = parseInt(monthStr, 10);
+      const realizYear  = parseInt(yearStr,  10);
+
+      // Fetch both transaction list and realization report in parallel
+      const [ops, realiz] = await Promise.all([
+        fetchOzonReport(clientId.trim(), apiKey.trim(), dateFrom, dateTo),
+        fetchOzonRealization(clientId.trim(), apiKey.trim(), realizMonth, realizYear)
+          .catch(e => { console.warn('[Realization] fetch failed:', e); return null; }),
+      ]);
+
+      // DEBUG — log ALL realization fields
+      console.log('[Realization] raw response:', JSON.stringify(realiz, null, 2));
+
       const { rows: parsed, accountTotals: at } = parseOzonOperations(ops);
       setRows(parsed);
       setAccountTotals(at);

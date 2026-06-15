@@ -82,6 +82,59 @@ router.post("/ozon/report", async (req, res) => {
 });
 
 /**
+ * POST /api/ozon/realization
+ * Headers: X-Ozon-Client-Id, X-Ozon-Api-Key
+ * Body: { month: number, year: number }
+ *
+ * Fetches the monthly realization report from Ozon (/v1/finance/realization).
+ * Returns the raw `result` object with aggregated financial totals.
+ */
+router.post("/ozon/realization", async (req, res) => {
+  const clientId = req.headers["x-ozon-client-id"];
+  const apiKey   = req.headers["x-ozon-api-key"];
+
+  if (!clientId || !apiKey) {
+    res.status(401).json({ error: "Нужны заголовки X-Ozon-Client-Id и X-Ozon-Api-Key" });
+    return;
+  }
+
+  const { month, year } = req.body as { month?: number; year?: number };
+  if (!month || !year) {
+    res.status(400).json({ error: "Нужны параметры month и year" });
+    return;
+  }
+
+  req.log.info({ month, year }, "ozon realization fetch");
+
+  try {
+    const upstream = await fetch(`${OZON_BASE}/v1/finance/realization`, {
+      method: "POST",
+      headers: {
+        "Client-Id": String(clientId),
+        "Api-Key":   String(apiKey),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ month, year }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!upstream.ok) {
+      const text = await upstream.text().catch(() => String(upstream.status));
+      req.log.warn({ status: upstream.status }, "ozon realization error");
+      res.status(upstream.status).json({ error: text });
+      return;
+    }
+
+    const data = await upstream.json() as { result?: unknown };
+    req.log.info({ month, year }, "ozon realization done");
+    res.json(data.result ?? data);
+  } catch (err) {
+    req.log.error({ err }, "ozon realization fetch error");
+    res.status(502).json({ error: "Не удалось связаться с Ozon API" });
+  }
+});
+
+/**
  * POST /api/ozon/analytics-metrics
  * Headers: X-Ozon-Client-Id, X-Ozon-Api-Key
  * Body: { dateFrom: "YYYY-MM-DD", dateTo: "YYYY-MM-DD" }

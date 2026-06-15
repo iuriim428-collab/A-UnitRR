@@ -71,6 +71,45 @@ export interface ParsedOzonResult {
   accountTotals: OzonAccountTotals;
 }
 
+// ─── Raw Ozon realization report shape (v1) ───────────────────────────────────
+export interface OzonRealizationResult {
+  // Known fields from Ozon docs; actual response may include more
+  period?:                   { begin?: string; end?: string };
+  vendor_name?:              string;
+  accruals_for_sale?:        number;
+  refunds_and_cancellations?: number;
+  processing_and_delivery?:  number;
+  compensation?:             number;
+  money_transfer?:           number;
+  others_amount?:            number;
+  penalty?:                  number;
+  [key: string]: unknown;  // capture any extra fields
+}
+
+export async function fetchOzonRealization(
+  clientId: string,
+  apiKey: string,
+  month: number,
+  year: number,
+): Promise<OzonRealizationResult> {
+  const resp = await fetch('/api/ozon/realization', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Ozon-Client-Id': clientId,
+      'X-Ozon-Api-Key':   apiKey,
+    },
+    body: JSON.stringify({ month, year }),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error(`Realization: ${body?.error ?? `HTTP ${resp.status}`}`);
+  }
+
+  return resp.json() as Promise<OzonRealizationResult>;
+}
+
 // ─── Fetch ────────────────────────────────────────────────────────────────────
 export async function fetchOzonReport(
   clientId: string,
