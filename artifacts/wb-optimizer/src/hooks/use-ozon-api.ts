@@ -67,6 +67,26 @@ export function useOzonApi(tax: TaxSettings, setTax: (t: TaxSettings) => void) {
     const accountRevenue = at.otherRevenue;
     const netAccountAdjustment = accountCostTotal - accountRevenue;
 
+    // DEBUG — remove after diagnosis
+    console.log('[OzonDebug] base.netSales', base.netSales.toFixed(2));
+    console.log('[OzonDebug] base.ozonCommission', base.ozonCommission.toFixed(2));
+    console.log('[OzonDebug] base.deliveryServices', base.deliveryServices.toFixed(2));
+    console.log('[OzonDebug] base.promotion', base.promotion.toFixed(2));
+    console.log('[OzonDebug] base.fboServices', base.fboServices.toFixed(2));
+    console.log('[OzonDebug] base.agentServices', base.agentServices.toFixed(2));
+    console.log('[OzonDebug] base.otherExpenses', base.otherExpenses.toFixed(2));
+    console.log('[OzonDebug] base.profitBeforeCosts', base.profitBeforeCosts.toFixed(2));
+    console.log('[OzonDebug] at.promotion', at.promotion.toFixed(2));
+    console.log('[OzonDebug] at.deliveryServices', at.deliveryServices.toFixed(2));
+    console.log('[OzonDebug] at.processing (sub)', at.processing.toFixed(2));
+    console.log('[OzonDebug] at.fboServices', at.fboServices.toFixed(2));
+    console.log('[OzonDebug] at.agentServices', at.agentServices.toFixed(2));
+    console.log('[OzonDebug] at.storage', at.storage.toFixed(2));
+    console.log('[OzonDebug] at.otherExpenses', at.otherExpenses.toFixed(2));
+    console.log('[OzonDebug] at.otherRevenue', at.otherRevenue.toFixed(2));
+    console.log('[OzonDebug] accountCostTotal', accountCostTotal.toFixed(2));
+    console.log('[OzonDebug] netAccountAdjustment', netAccountAdjustment.toFixed(2));
+
     return {
       ...base,
       promotion:        base.promotion        + at.promotion,
