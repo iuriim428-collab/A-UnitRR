@@ -73,7 +73,24 @@ router.post("/ozon/report", async (req, res) => {
       page++;
     }
 
-    req.log.info({ operations: allOps.length }, "ozon report done");
+    // DEBUG — log operation type distribution and zero-item ops
+    const opTypes = new Map<string, number>();
+    let zeroItemCount = 0;
+    let zeroItemSample: unknown[] = [];
+    for (const op of allOps) {
+      const o = op as Record<string, unknown>;
+      const t = String(o.operation_type ?? o.type ?? "(unknown)");
+      opTypes.set(t, (opTypes.get(t) ?? 0) + 1);
+      const items = (o.items as unknown[]) ?? [];
+      if (items.length === 0) {
+        zeroItemCount++;
+        if (zeroItemSample.length < 3) zeroItemSample.push(op);
+      }
+    }
+    const typesSorted = Array.from(opTypes.entries()).sort((a, b) => b[1] - a[1]);
+    const sumAmount = allOps.reduce((s, op) => s + ((op as Record<string, unknown>).amount as number ?? 0), 0);
+    req.log.info({ total: allOps.length, zeroItemCount, sumAmount: sumAmount.toFixed(2), types: typesSorted }, "ozon report done");
+    if (zeroItemSample.length > 0) req.log.info({ samples: zeroItemSample }, "ozon zero-item op samples");
     res.json(allOps);
   } catch (err) {
     req.log.error({ err }, "ozon fetch error");
