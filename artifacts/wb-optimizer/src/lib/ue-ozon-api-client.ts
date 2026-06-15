@@ -215,6 +215,48 @@ function classifyService(name: string): ServiceField {
   return 'otherExpenses';
 }
 
+// ─── Operation type → account-level category ─────────────────────────────────
+// Used for zero-item operations that carry amounts via op.amount (not services[])
+function classifyByOperationType(opType: string): ServiceField | 'promotion' | 'fboServices' | 'agentServices' | 'returnLogistics' | 'otherRevenue' | 'skip' {
+  switch (opType) {
+    // Продвижение и реклама
+    case 'OperationMarketplaceCostPerClick':
+    case 'OperationPromotionWithCostPerOrder':
+    case 'OperationSubscriptionPremiumLite':
+      return 'promotion';
+
+    // Услуги FBO (хранение, кросс-докинг, пополнение)
+    case 'MarketplaceServiceItemCrossdocking':
+    case 'OperationMarketplaceServiceStorage':
+    case 'TemporaryStorage':
+    case 'OperationMarketplaceItemTemporaryStorageRedistribution':
+    case 'MarketplaceServiceItemReplenishment':
+      return 'fboServices';
+
+    // Услуги партнёров (RFBS-агенты)
+    case 'MarketplaceAgencyFeeAggregator3plRFBS':
+    case 'MarketplaceServiceRedistributionOfDeliveryServicesRFBS':
+      return 'agentServices';
+
+    // Обратная логистика / возвраты
+    case 'SellerReturnsDeliveryToSortCenter':
+    case 'OperationSellerReturnsCargoAssortmentValid':
+    case 'OperationSellerReturnsCargoAssortmentInvalid':
+    case 'MarketplaceSellerReexposureDeliveryReturnOperation':
+      return 'returnLogistics';
+
+    // Компенсации / доходы
+    case 'AccrualWithoutDocs':
+      return 'otherRevenue';
+
+    // Другие услуги и штрафы
+    case 'DefectFineShipmentDelayRated':
+    case 'OperationMarketplaceServiceSupplyInboundCargoShortage':
+    default:
+      return 'otherExpenses';
+  }
+}
+
 // ─── Revenue service names (positive services that increase seller revenue) ───
 // NOTE: 'возврат вознаграждения' is NOT here — commission refunds are handled via
 // sale_commission on regular returns. On combined ops (accruals=0, commission=0)
@@ -265,40 +307,72 @@ export function parseOzonOperations(ops: OzonOperation[]): ParsedOzonResult {
       // Commission at account level (rare but possible)
       if (commission < 0) at.otherExpenses += Math.abs(commission);
 
-      for (const svc of services) {
-        const p = svc.price ?? 0;
-        if (p === 0) continue;
+      if (services.length > 0) {
+        // Service names present — classify by name (legacy path)
+        for (const svc of services) {
+          const p = svc.price ?? 0;
+          if (p === 0) continue;
 
-        if (p > 0) {
-          // Positive account-level entries: dispute credits, bonuses, etc.
-          // These are real revenue credited to seller — capture as otherRevenue
-          if (isRevenueService(svc.name ?? '')) {
-            at.otherRevenue += p;
+          if (p > 0) {
+            if (isRevenueService(svc.name ?? '')) at.otherRevenue += p;
+            continue;
           }
-          continue;
+
+          const cost  = Math.abs(p);
+          const field = classifyService(svc.name ?? '');
+
+          if (field === 'logistics' || field === 'returnLogistics' ||
+              field === 'lastMile'  || field === 'processing') {
+            at.deliveryServices += cost;
+            at[field]           += cost;
+          } else if (field === 'acquiring') {
+            at.agentServices += cost;
+            at.acquiring     += cost;
+          } else if (field === 'promotion') {
+            at.promotion += cost;
+          } else if (field === 'storage') {
+            at.storage += cost;
+          } else if (field === 'fboServices') {
+            at.fboServices += cost;
+          } else if (field === 'agentServices') {
+            at.agentServices += cost;
+          } else {
+            at.otherExpenses += cost;
+          }
         }
+      } else {
+        // No services[] — use op.amount + operation_type for classification
+        // These are ops like CPC ads, storage, cross-docking, fines, etc.
+        const opAmount = op.amount ?? 0;
+        if (opAmount !== 0) {
+          const opType = op.operation_type ?? '';
+          const field  = classifyByOperationType(opType);
 
-        const cost  = Math.abs(p);
-        const field = classifyService(svc.name ?? '');
-
-        if (field === 'logistics' || field === 'returnLogistics' ||
-            field === 'lastMile'  || field === 'processing') {
-          at.deliveryServices += cost;
-          at[field]           += cost;
-        } else if (field === 'acquiring') {
-          at.agentServices += cost;
-          at.acquiring     += cost;
-        } else if (field === 'promotion') {
-          at.promotion += cost;
-        } else if (field === 'storage') {
-          at.storage += cost;
-        } else if (field === 'fboServices') {
-          at.fboServices += cost;
-        } else if (field === 'agentServices') {
-          at.agentServices += cost;
-        } else {
-          // ozonCommission, otherExpenses
-          at.otherExpenses += cost;
+          if (opAmount < 0) {
+            const cost = Math.abs(opAmount);
+            if (field === 'promotion') {
+              at.promotion += cost;
+            } else if (field === 'fboServices') {
+              at.fboServices += cost;
+            } else if (field === 'agentServices') {
+              at.agentServices += cost;
+            } else if (field === 'returnLogistics') {
+              at.deliveryServices += cost;
+              at.returnLogistics  += cost;
+            } else if (field === 'otherRevenue') {
+              // negative "revenue" — treat as cost
+              at.otherExpenses += cost;
+            } else {
+              at.otherExpenses += cost;
+            }
+          } else {
+            // opAmount > 0 → credit to seller
+            if (field === 'otherRevenue') {
+              at.otherRevenue += opAmount;
+            } else {
+              at.otherRevenue += opAmount; // e.g. AccrualWithoutDocs
+            }
+          }
         }
       }
       continue;
