@@ -357,12 +357,13 @@ export function parseOzonOperations(ops: OzonOperation[]): ParsedOzonResult {
     r.otherExpenses > 0
   );
 
-  // DEBUG — log all unique service names sorted by total cost
-  const svcList = Array.from(svcNames.entries())
-    .sort((a, b) => b[1].totalCost - a[1].totalCost)
-    .map(([name, d]) => `${d.totalCost.toFixed(0).padStart(8)} | ${d.count.toString().padStart(4)}x | [${classifyService(name)}] ${name}`);
+  // DEBUG — log each service name individually so none get truncated
   console.log('[SvcNames] Total unique service names:', svcNames.size);
-  console.log('[SvcNames]\n' + svcList.join('\n'));
+  Array.from(svcNames.entries())
+    .sort((a, b) => b[1].totalCost - a[1].totalCost)
+    .forEach(([name, d]) => {
+      console.log(`[SVC] ${d.totalCost.toFixed(0).padStart(8)} | ${d.count}x | [${classifyService(name)}] ${name}`);
+    });
 
   return { rows, accountTotals: at };
 }
