@@ -18,3 +18,9 @@ id = "4wcgE7vpHFhDxid2BCiow"
 uri = "file://artifacts/desktop/dist-electron/UnitEconomics-win-x64-v2.zip"
 type = "unspecified"
 title = "UnitEconomics-win-x64-v2.zip — с фильтром, итогами, М/закуп."
+
+[[outputs]]
+id = "MhIInyJ0FvusyIohBYCCP"
+uri = "file://db_dump.pgdump.gz"
+type = "unspecified"
+title = "База данных (db_dump.pgdump.gz)"
