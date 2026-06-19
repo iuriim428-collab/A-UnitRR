@@ -1,0 +1,28 @@
+[Unit]
+Description=AD Unit R
+After=network.target
+
+[Service]
+Type=simple
+User=ad-unit-r
+Group=ad-unit-r
+WorkingDirectory=/opt/ad-unit-r/current
+EnvironmentFile=/etc/ad-unit-r/ad-unit-r.env
+ExecStart=/usr/bin/env bash /opt/ad-unit-r/current/scripts/run-production.sh
+Restart=always
+RestartSec=5
+TimeoutStartSec=60
+KillSignal=SIGTERM
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/log/ad-unit-r
+
+StandardOutput=append:/var/log/ad-unit-r/app.out.log
+StandardError=append:/var/log/ad-unit-r/app.err.log
+
+[Install]
+WantedBy=multi-user.target

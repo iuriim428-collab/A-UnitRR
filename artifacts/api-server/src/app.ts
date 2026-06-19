@@ -17,10 +17,21 @@ declare module "express-session" {
 const isDesktop = process.env.DATABASE_URL?.startsWith("pglite://") ?? false;
 const skipAuth = process.env.SKIP_AUTH === "true";
 
+function envFlag(name: string): boolean | undefined {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (value === undefined) return undefined;
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+  return undefined;
+}
+
 const app: Express = express();
+const useSecureCookies =
+  envFlag("COOKIE_SECURE") ??
+  (!isDesktop && process.env.NODE_ENV === "production" && !process.env.SERVE_FRONTEND_DIR);
 
 // Trust the reverse proxy (Replit) so secure cookies work over HTTPS
-app.set("trust proxy", 1);
+app.set("trust proxy", envFlag("TRUST_PROXY") === false ? false : 1);
 
 app.use(
   pinoHttp({
@@ -58,7 +69,7 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: !isDesktop && process.env.NODE_ENV === "production",
+      secure: useSecureCookies,
       sameSite: "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     },
@@ -87,7 +98,7 @@ app.use("/api", requireAuth, router);
 if (process.env.SERVE_FRONTEND_DIR) {
   const frontendDir = path.resolve(process.env.SERVE_FRONTEND_DIR);
   app.use(express.static(frontendDir));
-  app.get("*", (_req, res) => {
+  app.get("/{*path}", (_req, res) => {
     res.sendFile(path.join(frontendDir, "index.html"));
   });
 }

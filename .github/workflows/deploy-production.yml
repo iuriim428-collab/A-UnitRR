@@ -1,0 +1,58 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ad-unit-r-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ${{ secrets.AD_UNIT_R_DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.AD_UNIT_R_DEPLOY_USER }}
+      DEPLOY_PATH: /opt/ad-unit-r/current
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.AD_UNIT_R_DEPLOY_KEY }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Ensure target directory exists
+        run: |
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH'"
+
+      - name: Sync repository to server
+        run: |
+          rsync -az --delete \
+            --exclude ".git/" \
+            --exclude ".github/" \
+            --exclude ".tmp/" \
+            --exclude ".agents/" \
+            --exclude "node_modules/" \
+            --exclude "attached_assets/" \
+            --exclude "db_dump.pgdump" \
+            --exclude "db_dump.pgdump.gz" \
+            --exclude "artifacts/api-server/dist/" \
+            --exclude "artifacts/wb-optimizer/dist/" \
+            --exclude "artifacts/desktop/" \
+            --exclude "artifacts/desktop-wb/" \
+            --exclude "artifacts/ozon-unit-economics/" \
+            ./ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+
+      - name: Run remote deployment
+        run: |
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "bash '$DEPLOY_PATH/scripts/deploy-production.sh'"
